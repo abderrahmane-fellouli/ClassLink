@@ -1,0 +1,74 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Outfit:wght@300;400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --radius-DEFAULT: var(--radius);
+}
+
+:root {
+  --background: #F7F8FC;
+  --foreground: #0D1B2A;
+  --card: #FFFFFF;
+  --card-foreground: #0D1B2A;
+  --primary: #1A3A6B;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EEF1FA;
+  --secondary-foreground: #1A3A6B;
+  --muted: #E8EBF5;
+  --muted-foreground: #5A6580;
+  --accent: #E8820C;
+  --accent-foreground: #FFFFFF;
+  --border: #D6DAE8;
+  --ring: #1A3A6B;
+  --radius: 10px;
+
+  --sidebar: #0D1B2A;
+  --sidebar-fg: #FFFFFF;
+  --sidebar-muted: rgba(255,255,255,0.45);
+  --sidebar-active: rgba(255,255,255,0.12);
+  --success: #16A34A;
+  --warning: #D97706;
+  --danger: #DC2626;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  margin: 0;
+}
+
+.font-display {
+  font-family: 'Fraunces', serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+
+/* Transitions */
+a, button { transition: all 0.15s ease; }

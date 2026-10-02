@@ -1,0 +1,149 @@
+# =============================================================================
+# ClassLink 1.0 — Blueprint Render (API Laravel 11)
+# -----------------------------------------------------------------------------
+# Usage :
+#   1. Pousser le depot sur GitHub.
+#   2. Render > New > Blueprint > selectionner ce fichier.
+#   3. Renseigner les variables `sync: false` (marquees `REQUIRED`) dans le
+#      tableau de bord Render. AUCUNE valeur sensible n'est versionnee ici.
+#
+# Documentation complete : docs/DEPLOYMENT.md
+# =============================================================================
+
+databases:
+  # Base de developpement/previsualisation. La production utilise une base
+  # managee externe (Neon / Aiven / Supabase) pour disposer de sauvegardes et
+  # d'une connexion TLS : voir `sync: false` ci-dessous.
+  - name: classlink-db
+    databaseName: classlink
+    user: classlink
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: classlink-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /up
+    # L'API est sans etat (§16) : un seul noeud suffit tant que le stockage
+    # des fichiers est configure sur S3 (`FILESYSTEM_DISK=s3`). Pour rester
+    # sur le disque local, utiliser un disque persistant :
+    #   disk:
+    #     name: classlink-storage
+    #     mountPath: /app/storage
+    #     sizeGB: 10
+    # DATABASE_URL est injecte automatiquement par Render.
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        sync: false # REQUIRED — ex. https://classlink-api.onrender.com
+      - key: FRONTEND_URL
+        sync: false # REQUIRED — ex. https://classlink.vercel.app (liste separee par des virgules)
+      - key: APP_LOCALE
+        value: fr
+      - key: APP_FALLBACK_LOCALE
+        value: fr
+      - key: APP_KEY
+        generateValue: true
+      - key: DIGEST_TOKEN
+        generateValue: true
+      - key: DB_CONNECTION
+        value: pgsql
+      # `fromDatabase` lie ces variables a la base declaree plus haut : aucune
+      # valeur sensible n'est ecrite dans ce fichier. Pour une base externe
+      # (Neon / Aiven / Supabase), remplacer les quatre lignes suivantes par
+      # des variables `sync: false`.
+      - key: DB_HOST
+        fromDatabase:
+          name: classlink-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: classlink-db
+          property: port
+      - key: DB_DATABASE
+        fromDatabase:
+          name: classlink-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: classlink-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: classlink-db
+          property: password
+      - key: DB_SSLMODE
+        value: require
+      - key: SESSION_DRIVER
+        value: file
+      - key: SESSION_LIFETIME
+        value: "480"
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: FILESYSTEM_DISK
+        value: s3
+      - key: MAIL_MAILER
+        sync: false # REQUIRED — smtp (Brevo) ou log
+      - key: MAIL_FROM_ADDRESS
+        sync: false # REQUIRED — ex. no-reply@classlink.ma
+      - key: MAIL_FROM_NAME
+        value: ClassLink
+      - key: MAIL_HOST
+        sync: false # REQUIRED si smtp — smtp-relay.brevo.com
+      - key: MAIL_PORT
+        sync: false # 587
+      - key: MAIL_USERNAME
+        sync: false # REQUIRED si smtp
+      - key: MAIL_PASSWORD
+        sync: false # REQUIRED si smtp — cle SMTP Brevo
+      - key: MAIL_ENCRYPTION
+        sync: false # tls
+      - key: AZURE_CLIENT_ID
+        sync: false # REQUIRED pour la connexion Microsoft
+      - key: AZURE_CLIENT_SECRET
+        sync: false # REQUIRED pour la connexion Microsoft
+      - key: AZURE_TENANT_ID
+        sync: false # REQUIRED pour la connexion Microsoft
+      - key: AZURE_REDIRECT_URI
+        sync: false # REQUIRED — <APP_URL>/api/auth/microsoft/callback
+      - key: AWS_ACCESS_KEY_ID
+        sync: false # REQUIRED si s3
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false # REQUIRED si s3
+      - key: AWS_DEFAULT_REGION
+        sync: false # ex. eu-west-3
+      - key: AWS_BUCKET
+        sync: false # REQUIRED si s3 — seau PRIVE
+      # §15.2 — le nom est fixe en base (§15.2) ; seules les cles varient.
+      # `AI_PROVIDER_1` = OpenAI, `AI_PROVIDER_2` = Groq,
+      # `AI_PROVIDER_3` = Mistral (voir backend/config/services.php).
+      - key: AI_PROVIDER_1_KEY
+        sync: false # optionnel
+      - key: AI_PROVIDER_1_MODEL
+        value: gpt-4o-mini
+      - key: AI_PROVIDER_2_KEY
+        sync: false # optionnel
+      - key: AI_PROVIDER_2_MODEL
+        value: llama-3.3-70b-versatile
+      - key: AI_PROVIDER_3_KEY
+        sync: false # optionnel
+      - key: AI_PROVIDER_3_MODEL
+        value: mistral-small-latest
+      # Refus categorique de la connexion de developpement en production.
+      - key: DEV_AUTH_ENABLED
+        value: "false"
+    # Migrations appliquees AVANT de deplacer le trafic vers la nouvelle image.
+    # `preDeployCommand` est le bon crochet : les migrations sont additivies
+    # (aucune suppression de donnees), voir docs/DEPLOYMENT.md.
+    preDeployCommand: php artisan migrate --force
+    # Aucune commande de demarrage : le `CMD` du Dockerfile lance le serveur.
+    # Aucun `buildCommand` : Render ignore ce champ en runtime `docker`.

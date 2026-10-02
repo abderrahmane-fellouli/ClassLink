@@ -1,0 +1,66 @@
+# =============================================================================
+# ClassLink 1.0 — Fichiers exclus du depot
+# -----------------------------------------------------------------------------
+# Regle absolue : aucun secret n'est versionne. Les variables d'environnement
+# vivent dans les depots de secrets de la plateforme (Render, Vercel, GitHub
+# Actions). Les fichiers d'exemple `.env.example` sont, eux, versionnes.
+# =============================================================================
+
+# Secrets et configurations locales
+**/.env
+**/.env.*
+!**/.env.example
+**/auth.json
+**/.npmrc
+**/.netrc
+**/*.pem
+**/*.key
+!**/package-lock.json
+
+# Dependances installees
+node_modules/
+vendor/
+.pnp
+.pnp.js
+
+# Artefacts de build
+frontend/dist/
+frontend/coverage/
+frontend/tsconfig.tsbuildinfo
+frontend/.vite/
+backend/public/build/
+backend/public/hot
+backend/public/storage
+backend/node_modules/
+
+# Caches Laravel
+backend/.phpunit.cache/
+backend/.phpunit.result.cache
+backend/bootstrap/cache/*.php
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/testing/disks/*
+backend/storage/framework/views/*
+backend/storage/logs/*
+backend/storage/*.key
+
+# Base de donnees locale
+backend/database/*.sqlite
+backend/database/*.sqlite-journal
+backend/database/*.sqlite-shm
+backend/database/*.sqlite-wal
+
+# Journaux et fichiers temporaires
+*.log
+npm-debug.log*
+yarn-error.log*
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+.fleet/
+
+# Note : `design/` et `cahier_des_charges/` sont volontairement conserves
+# (reference de conception et exigences). `design.rar` est l'archive source.

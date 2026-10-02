@@ -1,0 +1,10 @@
+{
+  "description": "Facilitates OFPPT students' access to classes, quizzes, and request management through a streamlined dashboard and class joining features.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,0 +1,78 @@
+# =============================================================================
+# ClassLink 1.0 — Resume quotidien des annonces (F-NOT-02 / §17.11)
+# -----------------------------------------------------------------------------
+# Le cahier des charges impose une tache planifiee GitHub Actions qui appelle
+# la route protegee `POST /api/internal/daily-digest`.
+#
+# Secrets requis (Settings > Secrets and variables > Actions) :
+#   CLASSLINK_API_URL     ex. https://classlink-api.onrender.com
+#   DIGEST_TOKEN          valeur identique a celle de l'API
+#
+# Ces secrets ne sont JAMAIS versionnes. Voir docs/DEPLOYMENT.md.
+# =============================================================================
+
+name: Daily digest
+
+on:
+  schedule:
+    # 07:00 UTC. Le cahier des charges fixe l'envoi du resume quotidien le
+    # matin ; l'heure exacte est modifiable ici.
+    - cron: '0 7 * * *'
+  workflow_dispatch: # declenchement manuel depuis l'onglet Actions
+  push:
+    branches: [main, master]
+    paths:
+      - 'backend/app/Services/EmailDigestService.php'
+      - 'backend/routes/api.php'
+      - '.github/workflows/daily-digest.yml'
+
+concurrency:
+  group: daily-digest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  send-digest:
+    name: Envoyer le resume quotidien
+    runs-on: ubuntu-latest
+    # Empeche les executions paralleles : deux resumes le meme jour
+    # doubleraient les emails aux etudiants.
+    environment: production
+
+    steps:
+      - name: Verifier la presence des secrets
+        env:
+          API_URL: ${{ secrets.CLASSLINK_API_URL }}
+          TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
+            echo "::error::CLASSLINK_API_URL et DIGEST_TOKEN doivent etre definis dans les secrets GitHub."
+            exit 1
+          fi
+
+      - name: Appeler la route interne
+        env:
+          API_URL: ${{ secrets.CLASSLINK_API_URL }}
+          TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        run: |
+          # L'API est sans etat : pas de cookie, uniquement l'en-tete
+          # `X-Digest-Token` partage avec la tache planifiee.
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 300 \
+            --retry 2 \
+            --retry-delay 10 \
+            -X POST "${API_URL%/}/api/internal/daily-digest" \
+            -H "X-Digest-Token: ${TOKEN}" \
+            -H "Accept: application/json")
+
+          echo "Reponse : ${response}"
+
+          sent=$(echo "$response" | jq -r '.sent // 0')
+          echo "Emails envoyes : ${sent}"
+
+      - name: Notifier en cas d'echec
+        if: failure()
+        run: |
+          echo "::error::Le resume quotidien n'a pas pu etre envoye. Verifier DIGEST_TOKEN, MAIL_* et l'etat du service API."

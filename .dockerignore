@@ -1,0 +1,55 @@
+# =============================================================================
+# Dependances et artefacts exclus du contexte de construction Docker.
+# Une reduction du contexte evite d'envoyer node_modules, vendor ou des
+# secrets potentiels dans le demon de build.
+# =============================================================================
+
+# Secrets et configurations locales : JAMAIS dans l'image.
+**/.env
+**/.env.*
+!**/.env.example
+**/auth.json
+**/.npmrc
+**/.netrc
+
+# Dependances installees dans l'image.
+backend/vendor/
+backend/node_modules/
+frontend/node_modules/
+
+# Artefacts de build et de test.
+frontend/dist/
+backend/public/build/
+backend/public/hot
+backend/public/storage
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/storage/logs/*
+backend/bootstrap/cache/*.php
+backend/.phpunit.result.cache
+backend/.phpunit.cache/
+frontend/tsconfig.tsbuildinfo
+frontend/coverage/
+
+# Base SQLite locale.
+backend/database/*.sqlite
+backend/database/*.sqlite-journal
+
+# Versionnement et outils.
+.git/
+.gitignore
+.github/
+**/.gitattributes
+**/.idea/
+**/.vscode/
+**/.fleet
+**/Thumbs.db
+**/.DS_Store
+
+# Documentation et maquettes : sans effet sur l'image.
+design/
+cahier_des_charges/
+docs/
+*.md
+*.rar

@@ -1,0 +1,158 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Resources\FlashcardDeckResource;
+use App\Models\Classroom;
+use App\Models\Flashcard;
+use App\Models\FlashcardDeck;
+use App\Models\FlashcardReview;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+
+/**
+ * §12.5 — F-QUI-08 (Should) : révision par flashcards.
+ * Non listé dans le §12 du cahier des charges : routes ajoutées sous la
+ * classe correspondante, cohérentes avec la matrice d'autorisation.
+ */
+class FlashcardController extends Controller
+{
+    public function index(Request $request, Classroom $classroom): JsonResponse
+    {
+        $this->authorize('view', $classroom);
+
+        $isManager = $classroom->isOwnedBy($request->user());
+
+        $decks = $classroom->flashcardDecks()
+            ->when(! $isManager, fn ($q) => $q->where('status', 'published'))
+            ->withCount('cards')
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json(['data' => FlashcardDeckResource::collection($decks)]);
+    }
+
+/**
+ * F-QUI-08 : consultation d'un deck publie avec ses cartes.
+ * La politique `FlashcardDeckPolicy::view` interdit tout deck en brouillon
+ * a un etudiant, donc aucune carte n'est exposee par erreur.
+ *
+ * Les cartes portent l'etat de revision du demandeur (`known`) : la reprise
+ * d'une session ne depend plus du poste du client.
+ */
+public function show(Request $request, FlashcardDeck $deck): FlashcardDeckResource
+{
+    $this->authorize('view', $deck);
+
+    $deck->load('cards');
+
+    $known = FlashcardReview::query()
+        ->where('user_id', $request->user()->id)
+        ->whereIn('flashcard_id', $deck->cards->modelKeys())
+        ->pluck('known', 'flashcard_id')
+        ->all();
+
+    return new FlashcardDeckResource($deck->setAttribute('knownByViewer', $known));
+}
+
+/**
+ * F-QUI-08 : memorisation d'une carte par l'etudiant.
+ *
+ * POST /flashcard-decks/{deck}/cards/{card}/review  { "known": true|false }
+ *
+ * L'etat est enregistre par carte (table `flashcard_reviews`) : il survit au
+ * rechargement et est propre a l'etudiant. Meme politique que la lecture du
+ * deck : deck publie + adhesion acceptee, donc aucune carte d'une autre
+ * classe n'est modifiable.
+ */
+public function review(Request $request, FlashcardDeck $deck, Flashcard $card): JsonResponse
+{
+    $this->authorize('review', $deck);
+
+    // La carte doit bien appartenir au deck de l'URL : sinon on pourrait
+    // ecrire un avis sur une carte d'un autre deck (donc d'une autre classe).
+    abort_unless($card->deck_id === $deck->id, 404);
+
+    $data = $request->validate([
+        'known' => ['required', 'boolean'],
+    ], [], ['known' => 'revision']);
+
+    $review = FlashcardReview::updateOrCreate(
+        [
+            'user_id' => $request->user()->id,
+            'flashcard_id' => $card->id,
+        ],
+        ['known' => (bool) $data['known']],
+    );
+
+    return response()->json([
+        'data' => [
+            'card_id' => $card->id,
+            'known' => $review->known,
+        ],
+    ]);
+}
+
+    public function store(Request $request, Classroom $classroom): JsonResponse
+    {
+        $this->authorize('manage', $classroom);
+
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'cards' => ['required', 'array', 'min:1', 'max:100'],
+            'cards.*.front' => ['required', 'string', 'max:2000'],
+            'cards.*.back' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $deck = FlashcardDeck::create([
+            'classroom_id' => $classroom->id,
+            'title' => $data['title'],
+            'source' => 'manual',
+            'status' => 'draft',
+            'reviewed' => true,
+        ]);
+
+        foreach ($data['cards'] as $i => $card) {
+            $deck->cards()->create(['front' => $card['front'], 'back' => $card['back'], 'position' => $i]);
+        }
+
+        return response()->json(new FlashcardDeckResource($deck->load('cards')), 201);
+    }
+
+    /** RG-11 appliqué aux decks IA : publication après relecture. */
+    public function publish(FlashcardDeck $deck): FlashcardDeckResource
+    {
+        $this->authorize('update', $deck);
+
+        if ($deck->source === 'ai' && ! $deck->reviewed) {
+            return response()->json([
+                'message' => 'Relisez ce deck généré par l\'IA avant de le publier.',
+                'requires_review' => true,
+            ], 409);
+        }
+
+        $deck->update(['status' => 'published', 'reviewed' => true]);
+
+        return new FlashcardDeckResource($deck->fresh('cards'));
+    }
+
+    /** Marque le deck comme relu — déverrouille la publication (F-IA-03). */
+    public function markReviewed(FlashcardDeck $deck): FlashcardDeckResource
+    {
+        $this->authorize('update', $deck);
+
+        $deck->update(['reviewed' => true]);
+
+        return new FlashcardDeckResource($deck->fresh('cards'));
+    }
+
+    public function destroy(FlashcardDeck $deck): Response
+    {
+        $this->authorize('delete', $deck);
+
+        $deck->delete();
+
+        return response()->noContent();
+    }
+}

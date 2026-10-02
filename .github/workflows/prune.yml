@@ -1,0 +1,87 @@
+# =============================================================================
+# ClassLink 1.0 — Purge des codes OTP et des jetons expires (F-AUTH-07 / §11)
+# -----------------------------------------------------------------------------
+# Le job `App\Jobs\PruneExpiredOtpCodes` supprime :
+#   - les codes a usage unique dont la validite de 10 minutes est depassee ;
+#   - les jetons personnel expires (au-dela de 8 heures, RG-19).
+#
+# Il est expose par la route interne `POST /api/internal/prune` ET par la
+# commande artisan `classlink:prune` : les deux passent par le meme job, donc
+# une purge declenchee a la main a le meme effet que la purge planifiee.
+#
+# Meme secrets que le resume quotidien :
+#   CLASSLINK_API_URL
+#   DIGEST_TOKEN
+# =============================================================================
+
+name: Prune expired data
+
+on:
+  schedule:
+    # 03:00 UTC : avant le resume de 07:00, pour que les codes expires du
+    # jour ne restent pas en base.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'backend/app/Jobs/PruneExpiredOtpCodes.php'
+      - 'backend/app/Services/OtpService.php'
+      - 'backend/app/Services/TokenService.php'
+      - 'backend/routes/api.php'
+      - '.github/workflows/prune.yml'
+
+concurrency:
+  group: prune-expired
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    name: Purger les codes et jetons expires
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Verifier la presence des secrets
+        env:
+          API_URL: ${{ secrets.CLASSLINK_API_URL }}
+          TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
+            echo "::error::CLASSLINK_API_URL et DIGEST_TOKEN doivent etre definis dans les secrets GitHub."
+            exit 1
+          fi
+
+      - name: Appeler la route interne
+        id: prune
+        env:
+          API_URL: ${{ secrets.CLASSLINK_API_URL }}
+          TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        run: |
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 120 \
+            --retry 2 \
+            --retry-delay 10 \
+            -X POST "${API_URL%/}/api/internal/prune" \
+            -H "X-Digest-Token: ${TOKEN}" \
+            -H "Accept: application/json")
+
+          echo "Reponse : ${response}"
+
+          deleted=$(echo "$response" | jq -r '.deleted // 0')
+          echo "Enregistrements supprimes : ${deleted}"
+          echo "deleted=${deleted}" >> "$GITHUB_OUTPUT"
+
+      - name: Journaliser le resultat
+        env:
+          DELETED: ${{ steps.prune.outputs.deleted }}
+        run: |
+          {
+            echo "## Purge ClassLink"
+            echo ""
+            echo "- Date : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- Enregistrements supprimes : **${DELETED}**"
+          } >> "$GITHUB_STEP_SUMMARY"
