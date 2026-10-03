@@ -337,4 +337,189 @@ class MembershipTest extends TestCase
             ->postJson('/api/join-requests', ['code' => 'TDI2025A'])
             ->assertStatus(403);
     }
+
+    // -- RG-06 : une decision ne porte que sur une demande en attente ---------
+
+    public function test_accepting_twice_returns_409_and_keeps_the_first_decision(): void
+    {
+        $membership = $this->pendingRequest();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertOk();
+
+        $firstDecision = $membership->fresh()->decided_at;
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertStatus(409);
+
+        $membership->refresh();
+
+        $this->assertSame('accepted', $membership->status);
+        $this->assertEquals(
+            $firstDecision->toDateTimeString(),
+            $membership->decided_at->toDateTimeString(),
+            'Une seconde decision ne doit pas reecrire la date de decision.'
+        );
+
+        // Une seule notification, pas une par decision.
+        $this->assertSame(1, AppNotification::where('type', NotificationService::MEMBERSHIP_ACCEPTED)->count());
+    }
+
+    public function test_rejecting_an_accepted_request_returns_409(): void
+    {
+        /*
+         * Rejeter un etudiant deja accepte equivalait a le retirer par le
+         * mauvais chemin : notification MEMBERSHIP_REJECTED + delai de 24 h au
+         * lieu de MEMBERSHIP_REMOVED. Le retrait passe par `remove()`.
+         */
+        $membership = $this->pendingRequest();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertOk();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/reject")
+            ->assertStatus(409);
+
+        $this->assertSame('accepted', $membership->fresh()->status);
+        $this->assertSame(0, AppNotification::where('type', NotificationService::MEMBERSHIP_REJECTED)->count());
+    }
+
+    public function test_rejecting_twice_returns_409(): void
+    {
+        $membership = $this->pendingRequest();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/reject")
+            ->assertOk();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/reject")
+            ->assertStatus(409);
+
+        $this->assertSame('rejected', $membership->fresh()->status);
+        $this->assertSame(1, AppNotification::where('type', NotificationService::MEMBERSHIP_REJECTED)->count());
+    }
+
+    public function test_a_removed_member_cannot_be_accepted_or_rejected_again(): void
+    {
+        $membership = Membership::create([
+            'classroom_id' => $this->classroom->id,
+            'student_id' => $this->student->id,
+            'status' => 'removed',
+            'requested_at' => Carbon::now()->subDays(3),
+            'decided_at' => Carbon::now()->subDay(),
+            'decided_by' => $this->teacher->id,
+        ]);
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertStatus(409);
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/reject")
+            ->assertStatus(409);
+
+        $this->assertSame('removed', $membership->fresh()->status);
+    }
+
+    public function test_the_conflict_reports_the_current_status(): void
+    {
+        $membership = $this->pendingRequest();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertOk();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertStatus(409)
+            ->assertJsonPath('context.status', 'accepted');
+    }
+
+    public function test_removal_remains_the_only_way_to_end_an_active_membership(): void
+    {
+        // Le refus d'une demande non pendante ne doit pas interdire `remove()`.
+        $membership = $this->pendingRequest();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertOk();
+
+        $this->actingAs($this->teacher)
+            ->deleteJson("/api/classes/{$this->classroom->id}/members/{$this->student->id}")
+            ->assertStatus(204);
+
+        $this->assertSame('removed', $membership->fresh()->status);
+        $this->assertSame(1, AppNotification::where('type', NotificationService::MEMBERSHIP_REMOVED)->count());
+    }
+
+    public function test_the_state_guard_does_not_weaken_the_ownership_check(): void
+    {
+        // 403 prime sur 409 : un enseignant tiers ne doit pas apprendre que la
+        // demande existe deja, ni son etat.
+        $membership = $this->pendingRequest();
+        $intruder = $this->teacher();
+
+        $this->actingAs($this->teacher)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertOk();
+
+        $this->actingAs($intruder)
+            ->postJson("/api/join-requests/{$membership->id}/reject")
+            ->assertStatus(403);
+
+        $this->assertSame('accepted', $membership->fresh()->status);
+    }
+
+    public function test_a_student_cannot_decide_their_own_request(): void
+    {
+        $membership = $this->pendingRequest();
+
+        $this->actingAs($this->student)
+            ->postJson("/api/join-requests/{$membership->id}/accept")
+            ->assertStatus(403);
+
+        $this->actingAs($this->student)
+            ->postJson("/api/join-requests/{$membership->id}/reject")
+            ->assertStatus(403);
+
+        $this->assertSame('pending', $membership->fresh()->status);
+    }
+
+    public function test_accept_all_still_only_accepts_pending_requests(): void
+    {
+        $pending = $this->pendingRequest();
+
+        $decided = Membership::create([
+            'classroom_id' => $this->classroom->id,
+            'student_id' => $this->student()->id,
+            'status' => 'accepted',
+            'requested_at' => Carbon::now()->subDays(2),
+            'decided_at' => Carbon::now()->subDay(),
+            'decided_by' => $this->teacher->id,
+        ]);
+
+        $response = $this->actingAs($this->teacher)
+            ->postJson("/api/classes/{$this->classroom->id}/join-requests/accept-all")
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(1, $response['accepted']);
+        $this->assertSame('accepted', $pending->fresh()->status);
+        $this->assertSame('accepted', $decided->fresh()->status);
+    }
+
+    private function pendingRequest(): Membership
+    {
+        return Membership::create([
+            'classroom_id' => $this->classroom->id,
+            'student_id' => $this->student->id,
+            'status' => 'pending',
+            'requested_at' => Carbon::now(),
+        ]);
+    }
 }

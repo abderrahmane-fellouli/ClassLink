@@ -1,3 +1,4 @@
+# Manual recovery only. Normal scheduling is the container's schedule:run process.
 # =============================================================================
 # ClassLink 1.0 — Resume quotidien des annonces (F-NOT-02 / §17.11)
 # -----------------------------------------------------------------------------
@@ -14,17 +15,7 @@
 name: Daily digest
 
 on:
-  schedule:
-    # 07:00 UTC. Le cahier des charges fixe l'envoi du resume quotidien le
-    # matin ; l'heure exacte est modifiable ici.
-    - cron: '0 7 * * *'
   workflow_dispatch: # declenchement manuel depuis l'onglet Actions
-  push:
-    branches: [main, master]
-    paths:
-      - 'backend/app/Services/EmailDigestService.php'
-      - 'backend/routes/api.php'
-      - '.github/workflows/daily-digest.yml'
 
 concurrency:
   group: daily-digest
@@ -61,8 +52,6 @@ jobs:
           # `X-Digest-Token` partage avec la tache planifiee.
           response=$(curl --silent --show-error --fail-with-body \
             --max-time 300 \
-            --retry 2 \
-            --retry-delay 10 \
             -X POST "${API_URL%/}/api/internal/daily-digest" \
             -H "X-Digest-Token: ${TOKEN}" \
             -H "Accept: application/json")

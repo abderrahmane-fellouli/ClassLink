@@ -25,12 +25,25 @@ class NotificationService
     public const PARTNER_REQUEST_RECEIVED = 'partner_request_received';
     public const PARTNER_REQUEST_ANSWERED = 'partner_request_answered';
     public const AI_JOB_FINISHED = 'ai_job_finished';
+    public const ANNOUNCEMENT_PUBLISHED = 'announcement_published';
+    public const ASSIGNMENT_PUBLISHED = 'assignment_published';
 
     /**
      * @param  array<string, mixed>  $payload
      */
-    public function notify(User $user, string $type, array $payload = []): AppNotification
+    public static function types(): array
     {
+        return [self::JOIN_REQUESTED, self::MEMBERSHIP_ACCEPTED, self::MEMBERSHIP_REJECTED,
+            self::MEMBERSHIP_REMOVED, self::QUIZ_PUBLISHED, self::GRADED,
+            self::PARTNER_REQUEST_RECEIVED, self::PARTNER_REQUEST_ANSWERED, self::AI_JOB_FINISHED,
+            self::ANNOUNCEMENT_PUBLISHED, self::ASSIGNMENT_PUBLISHED];
+    }
+
+    public function notify(User $user, string $type, array $payload = []): ?AppNotification
+    {
+        if (($user->notification_preferences['types'][$type] ?? true) === false) {
+            return null;
+        }
         return AppNotification::create([
             'user_id' => $user->id,
             'type' => $type,

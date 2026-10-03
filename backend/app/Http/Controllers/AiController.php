@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Enums\AiTarget;
+use App\Contracts\PdfTextExtractor;
+use App\Exceptions\PdfExtractionException;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Resources\AiJobResource;
 use App\Jobs\ProcessAiGeneration;
@@ -11,12 +13,12 @@ use App\Models\Classroom;
 use App\Services\MaterialStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * §12.4 — POST /classes/{id}/ai/generate, GET /ai/jobs/{id}.
  *
- * §17.11 : la génération s'exécute avec dispatchAfterResponse() — pas de
- * processus séparé en version 1.0.
+ * Generation is dispatched to the database queue after commit.
  */
 class AiController extends Controller
 {
@@ -31,7 +33,7 @@ class AiController extends Controller
      */
     public function generate(Request $request, Classroom $classroom): JsonResponse
     {
-        $this->authorize('generate', $classroom);
+        $this->authorize('generate', [AiJob::class, $classroom]);
 
         $data = $request->validate([
             'file' => ['required', 'file', 'mimes:pdf', 'max:'.(int) config('classlink.ai.max_kb', 10240)],
@@ -44,6 +46,18 @@ class AiController extends Controller
         $mimes = (array) config('classlink.ai.accepted_mimes');
         if (! in_array($file->getClientMimeType(), $mimes, true)) {
             throw new BusinessRuleException(__('api.ai.pdf_only'), 422);
+        }
+
+        return DB::transaction(function () use ($request, $classroom, $target, $file) {
+        // Serialize quota reservation and repeat uploads for this teacher.
+        \App\Models\User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+        $fileHash = hash_file('sha256', $file->getRealPath());
+        $existing = AiJob::where('teacher_id', $request->user()->id)
+            ->where('classroom_id', $classroom->id)->where('target', $target->value)
+            ->where('file_hash', $fileHash)->whereIn('status', ['queued', 'processing', 'done'])
+            ->latest()->first();
+        if ($existing && ($existing->status->value !== 'done' || $existing->quiz || $existing->deck)) {
+            return response()->json((new AiJobResource($existing))->resolve() + ['cached' => true], $existing->isTerminal() ? 200 : 202);
         }
 
         // RG-14 : quota quotidien par enseignant.
@@ -62,7 +76,16 @@ class AiController extends Controller
         }
 
         // RG-14 : empreinte du fichier -> un même PDF n'est pas retraité.
-        $fileHash = hash_file('sha256', $file->getRealPath());
+        try {
+            $extracted = app(PdfTextExtractor::class)->extract($file->getRealPath());
+        } catch (PdfExtractionException $e) {
+            throw new BusinessRuleException($e->getMessage(), 422, ['manual_fallback' => true]);
+        }
+        $pages = (int) ($extracted['page_count'] ?? 0);
+        $maxPages = (int) config('classlink.ai.max_pages', 30);
+        if ($pages < 1 || $pages > $maxPages || trim($extracted['text'] ?? '') === '') {
+            throw new BusinessRuleException(__('api.ai.too_many_pages', ['pages' => $pages, 'max' => $maxPages]), 422);
+        }
         $stored = $this->storage->storeFile($file, 'ai-inputs');
 
         $job = AiJob::create([
@@ -73,12 +96,14 @@ class AiController extends Controller
             'original_name' => $stored['name'],
             'file_path' => $stored['path'],
             'status' => 'queued',
+            'page_count' => $pages,
         ]);
 
-        // §17.11 : dispatchAfterResponse, pas de worker en v1.0.
-        ProcessAiGeneration::dispatch($job->id)->afterResponse();
+        ProcessAiGeneration::dispatch($job->id, $extracted['text'])
+            ->onConnection('database')->afterCommit();
 
-        return response()->json(new AiJobResource($job), 202);
+        return response()->json((new AiJobResource($job))->resolve() + ['cached' => false], 202);
+        });
     }
 
     /** F-IA-07 — suivi de l'état de la tâche. */

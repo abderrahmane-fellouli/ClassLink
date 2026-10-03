@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+
 use App\Models\Material;
 use App\Models\Membership;
 use App\Models\Submission;
@@ -87,9 +89,7 @@ class FileUploadTest extends TestCase
         $this->assertSame(0, \App\Models\AiJob::count());
     }
 
-    /**
-     * @dataProvider dangerousUploads
-     */
+    #[DataProvider('dangerousUploads')]
     public function test_t21_dangerous_extensions_are_all_refused(string $name, string $mime): void
     {
         [$classroom, $teacher] = $this->classWithMember();
@@ -503,9 +503,7 @@ class FileUploadTest extends TestCase
         $this->assertSame(0, Material::count());
     }
 
-    /**
-     * @dataProvider allowedDocuments
-     */
+    #[DataProvider('allowedDocuments')]
     public function test_a_valid_allowed_document_is_accepted(string $name, string $mime): void
     {
         [$classroom, $teacher] = $this->classWithMember();

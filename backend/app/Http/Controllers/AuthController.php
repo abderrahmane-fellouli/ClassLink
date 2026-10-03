@@ -106,7 +106,7 @@ class AuthController extends Controller
         if (! $user) {
             $user = User::create([
                 'email' => $email,
-                'display_name' => $name ?: $email,
+                'display_name' => $name ?: 'User',
                 'role' => $detected,
                 'role_locked' => false,
                 'locale' => config('app.locale', 'fr'),

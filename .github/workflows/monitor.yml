@@ -1,0 +1,26 @@
+name: Production monitoring
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  health:
+    if: vars.PRODUCTION_MONITORING_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - run: node scripts/monitor.mjs
+        env:
+          CLASSLINK_API_URL: ${{ vars.CLASSLINK_API_URL }}
+          CLASSLINK_FRONTEND_URL: ${{ vars.CLASSLINK_FRONTEND_URL }}
+          DATABASE_EXPIRES_AT: ${{ vars.DATABASE_EXPIRES_AT }}
+          STORAGE_EXPIRES_AT: ${{ vars.STORAGE_EXPIRES_AT }}
+          ENTRA_SECRET_EXPIRES_AT: ${{ vars.ENTRA_SECRET_EXPIRES_AT }}
+          BREVO_MONITOR_API_KEY: ${{ secrets.BREVO_MONITOR_API_KEY }}

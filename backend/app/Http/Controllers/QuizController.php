@@ -70,9 +70,12 @@ class QuizController extends Controller
                 'classroom_id' => $classroom->id,
                 'created_by' => $request->user()->id,
                 'title' => $data['title'],
+                'due_at' => $data['due_at'] ?? null,
                 'status' => 'draft', // RG-11 : jamais publié automatiquement
                 'source' => 'manual',
-                'reviewed' => true,
+                // F-IA-03 : `reviewed` reste faux (fail closed). Un quiz
+                // manuel peut être publié sans relecture ; `reviewed` ne sert
+                // de verrou que pour les quiz IA.
                 'time_limit_min' => $data['time_limit_min'] ?? null,
                 'max_attempts' => $data['max_attempts'] ?? 1,
                 'shuffle' => (bool) ($data['shuffle'] ?? false),
@@ -125,13 +128,18 @@ class QuizController extends Controller
 
         $data = $request->validate([
             'title' => ['sometimes', 'required', 'string', 'max:255'],
+            'due_at' => ['nullable', 'date'],
             'time_limit_min' => ['nullable', 'integer', 'min:1', 'max:600'],
             'max_attempts' => ['nullable', 'integer', 'min:1', 'max:20'],
             'shuffle' => ['nullable', 'boolean'],
             'show_answers' => ['nullable', 'boolean'],
         ]);
 
-        $quiz->update($data);
+        $quiz->fill($data);
+        if ($quiz->isDirty('time_limit_min') && $quiz->attempts()->exists()) {
+            throw new BusinessRuleException('The time limit is frozen once attempts exist.', 409);
+        }
+        $quiz->save();
 
         return new QuizResource($quiz->fresh('questions.options'));
     }
@@ -175,7 +183,9 @@ class QuizController extends Controller
 
         $quiz->update([
             'status' => 'published',
-            'reviewed' => true,
+            // F-IA-03 : `reviewed` n'est PAS posé ici. Publier ne vaut pas
+            // relecture : le verrou IA doit avoir été levé avant, par
+            // `review()` ou par une modification réelle des questions.
             'published_at' => now(),
         ]);
 
@@ -217,11 +227,11 @@ class QuizController extends Controller
             );
         }
 
-        if ((bool) $quiz->reviewed) {
+        if ((bool) $quiz->reviewed && $quiz->reviewed_at !== null) {
             return new QuizResource($quiz->fresh('questions.options'));
         }
 
-        $quiz->update(['reviewed' => true]);
+        $quiz->markReviewed();
 
         AuditLog::record($request->user(), 'quiz.review', [
             'quiz_id' => $quiz->id,
@@ -243,29 +253,102 @@ class QuizController extends Controller
 
         // RG-13 : AttemptQuestionResource ne contient ni is_correct ni
         // explanation. Les bonnes réponses restent sur le serveur.
+        //
+        // F-QUI-02 : l'ordre provient de la tentative (mélange serveur), pas
+        // d'un tri fait par le client.
         return response()->json([
             'attempt_id' => $attempt->id,
             'attempt_no' => $attempt->attempt_no,
             'started_at' => $attempt->started_at->toIso8601String(),
             'time_limit_min' => $quiz->time_limit_min,
             'remaining_seconds' => $attempt->remainingSeconds(),
+            'shuffled' => (bool) $quiz->shuffle,
             'questions' => AttemptQuestionResource::collection(
-                $quiz->questions()->with('options')->get()
+                $this->grading->questionsFor($attempt)
             ),
         ], 201);
     }
 
     /**
+     * §12.4 — GET /quizzes/{quiz}/attempts/active. F-QUI-04.
+     *
+     * Reprise d'une tentative déjà commencée sur un autre navigateur ou après
+     * un rechargement. Renvoie `null` quand rien n'est en cours : le frontend
+     * peut alors proposer de démarrer une tentative.
+     *
+     * RG-13 : l'ordre figé et les réponses déjà enregistrées sont renvoyés,
+     * jamais les bonnes réponses.
+     */
+    public function activeAttempt(Request $request, Quiz $quiz): JsonResponse
+    {
+        $this->authorize('attempt', $quiz);
+
+        $attempt = $this->grading->activeAttemptFor($request->user(), $quiz);
+
+        if (! $attempt) {
+            return response()->json(['attempt' => null]);
+        }
+
+        return response()->json([
+            'attempt' => [
+                'attempt_id' => $attempt->id,
+                'attempt_no' => $attempt->attempt_no,
+                'started_at' => $attempt->started_at->toIso8601String(),
+                'time_limit_min' => $quiz->time_limit_min,
+                'remaining_seconds' => $attempt->remainingSeconds(),
+                'shuffled' => (bool) $quiz->shuffle,
+                // Indexé par `question_id` : le client peut fusionner
+                // directement ces réponses dans son état local.
+                'answers' => $attempt->answers()
+                    ->get(['question_id', 'selected_option_ids'])
+                    ->mapWithKeys(fn ($answer) => [
+                        (int) $answer->question_id => [
+                            // Même nom que la requête PATCH
+                            // /attempts/{id}/answers (`option_ids`) : la reprise
+                            // est renvoyée dans le format exact d'une sauvegarde.
+                            'option_ids' => $answer->selected_option_ids,
+                        ],
+                    ]),
+                'questions' => AttemptQuestionResource::collection(
+                    $this->grading->questionsFor($attempt)
+                ),
+            ],
+        ]);
+    }
+
+    /**
      * §12.4 — POST /attempts/{id}/submit. RG-12 / RG-13.
+     *
      * T-15 : soumission après la fin du temps -> traitée comme expirée.
+     *
+     * RG-12 : « Une tentative dont le temps est écoulé est soumise
+     * automatiquement. » Les réponses transmises APRÈS l'échéance sont
+     * rejetées : elles ne sont ni enregistrées, ni corrigées. La tentative
+     * est finalisée avec le score déjà acquis (0 si aucune réponse n'a été
+     * sauvegardée avant l'échéance) et `expired = true`.
      */
     public function submitAttempt(SubmitAttemptRequest $request, Attempt $attempt): JsonResponse
     {
+        return DB::transaction(function () use ($request, $attempt) {
+        $attempt = Attempt::whereKey($attempt->id)->lockForUpdate()->firstOrFail();
+        if ($attempt->hasTimeExpired()) {
+            $graded = $this->grading->submit($attempt, forcedExpired: true);
+
+            return response()->json(new AttemptResultResource($graded));
+        }
+
         $this->grading->saveAnswers($attempt, $request->validated()['answers']);
 
         $graded = $this->grading->submit($attempt);
 
         return response()->json(new AttemptResultResource($graded));
+        });
+    }
+
+    public function saveAttemptAnswers(SubmitAttemptRequest $request, Attempt $attempt): JsonResponse
+    {
+        $this->grading->saveAnswers($attempt, $request->validated()['answers']);
+        return response()->json(['saved' => count($request->validated()['answers'])]);
     }
 
     /**

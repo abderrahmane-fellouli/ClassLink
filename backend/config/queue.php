@@ -39,8 +39,8 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION', null),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 960),
+            'after_commit' => true,
         ],
 
         'beanstalkd' => [

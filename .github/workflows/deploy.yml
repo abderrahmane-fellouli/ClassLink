@@ -1,0 +1,42 @@
+name: Deploy production
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Reject stale successful CI runs
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+      - name: Trigger configured platform hooks
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK" && test -n "$VERCEL_DEPLOY_HOOK"
+          curl --fail --silent --show-error --max-time 30 -X POST "$RENDER_DEPLOY_HOOK" -o /dev/null
+          curl --fail --silent --show-error --max-time 30 -X POST "$VERCEL_DEPLOY_HOOK" -o /dev/null
+      - name: Check availability (not a release-identity attestation)
+        env:
+          CLASSLINK_API_URL: ${{ vars.CLASSLINK_API_URL }}
+          CLASSLINK_FRONTEND_URL: ${{ vars.CLASSLINK_FRONTEND_URL }}
+        run: |
+          sleep 60
+          node scripts/monitor.mjs

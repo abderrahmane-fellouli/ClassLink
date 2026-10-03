@@ -46,6 +46,14 @@ class ProgressionService
                 'best_percentage' => $attempts->isEmpty() ? 0.0 : round($attempts->max(fn ($a) => $a->percentage()), 1),
             ],
             'history' => $rows,
+            'trend' => [
+                'direction' => count($rows) < 2 ? 'insufficient_data'
+                    : ($rows[count($rows) - 1]['percentage'] > $rows[0]['percentage'] ? 'up'
+                        : ($rows[count($rows) - 1]['percentage'] < $rows[0]['percentage'] ? 'down' : 'stable')),
+                'delta_percentage_points' => count($rows) < 2 ? null
+                    : round($rows[count($rows) - 1]['percentage'] - $rows[0]['percentage'], 1),
+                'series' => array_map(fn ($row) => ['submitted_at' => $row['submitted_at'], 'percentage' => $row['percentage']], $rows),
+            ],
         ];
     }
 
@@ -66,27 +74,21 @@ class ProgressionService
 
         $scores = $attempts->map(fn ($a) => $a->percentage());
 
-        $participated = $attempts->pluck('student_id')->unique();
+        $participated = $attempts->pluck('student_id')->unique()->intersect($members);
         $inactive = $members->diff($participated)->values();
 
         // F-PRO-03 : questions les plus ratées.
         $missed = [];
 
         foreach ($attempts as $attempt) {
-            foreach ($attempt->answers as $answer) {
-                if ($answer->is_correct) {
-                    continue;
-                }
-
-                $questionId = $answer->question_id;
-                $missed[$questionId] ??= ['question_id' => $questionId, 'misses' => 0, 'attempts' => 0];
-                $missed[$questionId]['misses']++;
-            }
-
+            $answers = $attempt->answers->keyBy('question_id');
             foreach ($attempt->quiz?->questions ?? [] as $q) {
                 $qid = $q->id;
                 $missed[$qid] ??= ['question_id' => $qid, 'misses' => 0, 'attempts' => 0];
                 $missed[$qid]['attempts']++;
+                if (! $answers->get($qid)?->is_correct) {
+                    $missed[$qid]['misses']++;
+                }
             }
         }
 
@@ -123,6 +125,7 @@ class ProgressionService
                 'class_average' => $scores->isEmpty() ? 0.0 : round($scores->avg(), 1),
             ],
             'inactive_student_ids' => $inactive->all(),
+            'inactive_students' => User::whereIn('id', $inactive)->orderBy('display_name')->get(['id', 'display_name'])->toArray(),
             'most_missed' => $mostMissed,
         ];
     }

@@ -10,6 +10,7 @@
 **/.env
 **/.env.*
 !**/.env.example
+!**/.env.production.example
 **/auth.json
 **/.npmrc
 **/.netrc
@@ -56,6 +57,9 @@ npm-debug.log*
 yarn-error.log*
 *.tmp
 *.bak
+backups/
+artifacts/
+scripts/node_modules/
 Thumbs.db
 .DS_Store
 .idea/

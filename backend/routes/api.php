@@ -14,9 +14,11 @@ use App\Http\Controllers\OtpController;
 use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProgressionController;
+use App\Http\Controllers\QuestionController;
 use App\Http\Controllers\QuizController;
 use App\Http\Controllers\QuizResultController;
 use App\Jobs\PruneExpiredOtpCodes;
+use App\Services\AiService;
 use App\Services\EmailDigestService;
 use Illuminate\Support\Facades\Route;
 
@@ -47,7 +49,8 @@ Route::middleware('locale')->group(function () {
     Route::get('/auth/microsoft/redirect', [AuthController::class, 'redirect'])
         ->middleware('throttle:'.config('classlink.throttle.oauth_redirect'));
 
-    Route::get('/auth/microsoft/callback', [AuthController::class, 'callback']);
+    Route::get('/auth/microsoft/callback', [AuthController::class, 'callback'])
+        ->middleware('throttle:'.config('classlink.throttle.oauth_redirect'));
 
     // F-AUTH-02 : connexion de secours. RG-01 vérifié par la Form Request.
     Route::post('/auth/otp/request', [OtpController::class, 'request'])
@@ -70,6 +73,23 @@ Route::post('/internal/daily-digest', function (EmailDigestService $digest) {
 Route::post('/internal/prune', function (PruneExpiredOtpCodes $job) {
     // `app()->call()` resout les dependances de `handle()` comme le worker.
     return response()->json(['deleted' => app()->call([$job, 'handle'])]);
+})->middleware('digest.token');
+
+Route::post('/internal/finalize-attempts', function (\App\Services\QuizGradingService $grading) {
+    return response()->json(['finalized' => $grading->finalizeExpired()]);
+})->middleware('digest.token');
+
+/*
+ * F-IA-05 — remise a zero quotidienne des quotas IA (RG-13).
+ *
+ * `routes/console.php` enregistre deja cette tache via `Schedule::call`, mais
+ * aucun `schedule:run` ne s'execute en production : sans declencheur, le quota
+ * d'un enseignant reste epuise definitivement des le premier jour. La tache est
+ * donc exposee sur le meme modele que le resume et la purge, et declenchee par
+ * `.github/workflows/ai-quota-reset.yml` (00:05 UTC).
+ */
+Route::post('/internal/ai-quota-reset', function (AiService $ai) {
+    return response()->json(['reset' => $ai->resetDailyQuotas()]);
 })->middleware('digest.token');
 
 // ===========================================================================
@@ -133,13 +153,28 @@ Route::middleware(['auth:sanctum', 'active', 'locale'])->group(function () {
     Route::patch('/quizzes/{quiz}', [QuizController::class, 'update']);
     Route::delete('/quizzes/{quiz}', [QuizController::class, 'destroy']);
     Route::post('/quizzes/{quiz}/publish', [QuizController::class, 'publish']);
-Route::post('/quizzes/{quiz}/review', [QuizController::class, 'review']);
+    Route::post('/quizzes/{quiz}/review', [QuizController::class, 'review']);
+
+    // F-QUI-01 / US-25 — questions d'un quiz en brouillon. Le controle
+    // d'acces et le statut « brouillon » sont appliques par
+    // `QuizPolicy::manageQuestions` via `QuestionRequest::authorize()`.
+    Route::post('/quizzes/{quiz}/questions', [QuestionController::class, 'store']);
+    Route::post('/quizzes/{quiz}/questions/reorder', [QuestionController::class, 'reorder']);
+    Route::patch('/questions/{question}', [QuestionController::class, 'update']);
+    Route::delete('/questions/{question}', [QuestionController::class, 'destroy']);
 
     Route::post('/quizzes/{quiz}/attempts', [QuizController::class, 'startAttempt'])
         ->middleware('role:student');
 
+    // F-QUI-04 : reprise d'une tentative déjà commencée (autre navigateur,
+    // rechargement). Doit précéder `/attempts/{attempt}` pour ne pas être
+    // capté par le paramètre implicite.
+    Route::get('/quizzes/{quiz}/attempts/active', [QuizController::class, 'activeAttempt'])
+        ->middleware('role:student');
+
     Route::post('/attempts/{attempt}/submit', [QuizController::class, 'submitAttempt'])
         ->middleware('role:student');
+    Route::patch('/attempts/{attempt}/answers', [QuizController::class, 'saveAttemptAnswers'])->middleware('role:student');
     Route::get('/attempts/{attempt}', [QuizController::class, 'showAttempt'])
         ->middleware('role:student');
 
@@ -168,32 +203,9 @@ Route::post('/quizzes/{quiz}/review', [QuizController::class, 'review']);
     Route::get('/submissions/{submission}/download', [AssignmentController::class, 'downloadSubmission']);
 
     // F-DEV-04 : calendrier des échéances (devoirs et quiz).
-    Route::get('/me/deadlines', function (\Illuminate\Http\Request $request) {
-        $user = $request->user();
-        $classIds = $user->memberships()
-            ->where('status', \App\Enums\MembershipStatus::Accepted->value)
-            ->pluck('classroom_id');
-
-        $assignments = \App\Models\Assignment::whereIn('classroom_id', $classIds)
-            ->whereNotNull('due_at')->with('classroom:id,name')->get()
-            ->map(fn ($a) => [
-                'kind' => 'assignment', 'id' => $a->id, 'title' => $a->title,
-                'classroom' => $a->classroom?->name, 'due_at' => $a->due_at?->toIso8601String(),
-                'is_overdue' => now()->gt($a->due_at),
-            ]);
-
-        $quizzes = \App\Models\Quiz::whereIn('classroom_id', $classIds)
-            ->published()->whereNotNull('published_at')->with('classroom:id,name')->get()
-            ->map(fn ($q) => [
-                'kind' => 'quiz', 'id' => $q->id, 'title' => $q->title,
-                'classroom' => $q->classroom?->name, 'due_at' => $q->published_at?->toIso8601String(),
-                'is_overdue' => false,
-            ]);
-
-        return response()->json([
-            'data' => $assignments->concat($quizzes)->sortBy('due_at')->values(),
-        ]);
-    });
+    Route::get('/me/deadlines', [\App\Http\Controllers\DeadlineController::class, 'index'])->middleware('role:student');
+    Route::get('/me/notification-preferences', [NotificationController::class, 'preferences']);
+    Route::put('/me/notification-preferences', [NotificationController::class, 'updatePreferences']);
 
     Route::get('/me/progress', [ProgressionController::class, 'me'])->middleware('role:student');
     Route::get('/classes/{classroom}/progress', [ProgressionController::class, 'classroom']);
@@ -210,10 +222,15 @@ Route::post('/quizzes/{quiz}/review', [QuizController::class, 'review']);
     Route::get('/classes/{classroom}/flashcards', [FlashcardController::class, 'index']);
     Route::post('/classes/{classroom}/flashcards', [FlashcardController::class, 'store']);
     Route::get('/flashcard-decks/{deck}', [FlashcardController::class, 'show']);
-Route::post('/flashcard-decks/{deck}/cards/{card}/review', [FlashcardController::class, 'review']);
+    Route::patch('/flashcard-decks/{deck}', [FlashcardController::class, 'update']);
+    Route::delete('/flashcard-decks/{deck}', [FlashcardController::class, 'destroy']);
+    Route::patch('/flashcard-decks/{deck}/cards/{card}', [FlashcardController::class, 'updateCard']);
+    Route::delete('/flashcard-decks/{deck}/cards/{card}', [FlashcardController::class, 'destroyCard']);
+    // Relecture d'une carte par l'eleute (F-QUI-08) — distincte de
+    // `/reviewed` qui marque le deck entier comme relu par l'enseignant.
+    Route::post('/flashcard-decks/{deck}/cards/{card}/review', [FlashcardController::class, 'review']);
     Route::post('/flashcard-decks/{deck}/publish', [FlashcardController::class, 'publish']);
     Route::post('/flashcard-decks/{deck}/reviewed', [FlashcardController::class, 'markReviewed']);
-    Route::delete('/flashcard-decks/{deck}', [FlashcardController::class, 'destroy']);
 
     // F-NOT-01
     Route::get('/notifications', [NotificationController::class, 'index']);

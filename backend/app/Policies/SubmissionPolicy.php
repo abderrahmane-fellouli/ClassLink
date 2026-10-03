@@ -10,12 +10,13 @@ class SubmissionPolicy
 {
     public function view(User $user, Submission $submission): bool
     {
-        return $submission->student_id === $user->id
+        return ($submission->student_id === $user->id && $submission->assignment->classroom->hasAcceptedMember($user->id))
             || $submission->assignment->classroom->isOwnedBy($user);
     }
 
     public function grade(User $user, Submission $submission): bool
     {
-        return $submission->assignment->classroom->isOwnedBy($user);
+        return $submission->assignment->classroom->isOwnedBy($user)
+            && ! $submission->assignment->classroom->isReadOnly();
     }
 }

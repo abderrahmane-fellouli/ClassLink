@@ -27,6 +27,9 @@ export function setToken(token: string): void {
 export function clearToken(): void {
   try {
     window.sessionStorage.removeItem(TOKEN_KEY)
+    for (const key of Object.keys(window.sessionStorage)) {
+      if (key.startsWith('classlink.attempt.')) window.sessionStorage.removeItem(key)
+    }
   } catch {
     /* ignoré */
   }

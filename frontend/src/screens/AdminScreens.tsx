@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useI18n } from '../i18n'
 import { errorMessage } from '../lib/api'
 import { admin } from '../lib/endpoints'
+import { EditButton } from '../components/EditButton'
 import { useAction, useAsync } from '../lib/useAsync'
 import type { Role } from '../lib/types'
 import {
@@ -9,6 +10,7 @@ import {
   AsyncBoundary,
   Badge,
   Btn,
+  ConfirmButton,
   Card,
   EmptyState,
   Icons,
@@ -126,6 +128,7 @@ export function AdminUsersScreen() {
     signal => admin.users({ q: query || undefined, role: role || undefined, page }, { locale, signal }),
     [query, role, page],
   )
+  const pendingUsers = useAsync(signal => admin.pendingUsers({ signal, locale }), [locale])
   const update = useAction()
 
   async function changeRole(id: number, nextRole: string) {
@@ -201,9 +204,7 @@ export function AdminUsersScreen() {
                     <p className="text-xs text-[var(--muted-foreground)]">{user.email}</p>
                   </td>
                   <td className="px-4 py-3">
-                    {user.role_locked ? (
-                      <Badge label={t(`role.${user.role}` as 'role.admin')} color="purple"/>
-                    ) : (
+                    {user.role_locked && <Badge label={t(`role.${user.role}` as 'role.admin')} color="purple"/>}
                       <select
                         value={user.role}
                         onChange={event => void changeRole(user.id, event.target.value)}
@@ -215,7 +216,6 @@ export function AdminUsersScreen() {
                           <option key={option} value={option}>{t(`role.${option}` as 'role.student')}</option>
                         ))}
                       </select>
-                    )}
                   </td>
                   <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
                     {user.last_login_at ? formatDate(user.last_login_at) : t('admin.users.never')}
@@ -240,6 +240,12 @@ export function AdminUsersScreen() {
           </table>
         </Card>
       </AsyncBoundary>
+      <section className="mt-6">
+        <h2 className="font-display text-xl mb-3">{t('admin.stat.pendingRoles')}</h2>
+        <AsyncBoundary loading={pendingUsers.loading} error={pendingUsers.error} onRetry={pendingUsers.reload} errorMessage={t('common.error')} isEmpty={!pendingUsers.data?.data.length} empty={<EmptyState message={t('admin.users.empty')}/>}>
+          {(pendingUsers.data?.data ?? []).map(user => <Card key={user.id} className="p-4 flex flex-wrap items-center gap-3 mb-2"><p className="flex-1">{user.display_name}</p>{(['student', 'teacher'] as const).map(nextRole => <ConfirmButton key={nextRole} size="sm" disabled={update.pending} onClick={() => void changeRole(user.id, nextRole).then(pendingUsers.reload)}>{t(`role.${nextRole}`)}</ConfirmButton>)}</Card>)}
+        </AsyncBoundary>
+      </section>
 
       {meta && meta.last_page > 1 && (
         <div className="flex items-center justify-between mt-4">
@@ -272,6 +278,7 @@ export function AdminClassesScreen() {
   const classes = useAsync(signal => admin.classes({ signal }), [])
   const [notice, setNotice] = useState<string | null>(null)
   const action = useAction()
+  const [teacherIds, setTeacherIds] = useState<Record<number, string>>({})
 
   async function archive(id: number) {
     const result = await action.run(() => admin.archiveClass(id, { locale }))
@@ -337,10 +344,12 @@ export function AdminClassesScreen() {
                     />
                   </td>
                   <td className="px-4 py-3 text-right">
+                    <Input label={t('admin.teacherId')} type="number" value={teacherIds[item.id] ?? ''} onChange={value => setTeacherIds({ ...teacherIds, [item.id]: value })}/>
+                    <ConfirmButton size="sm" disabled={action.pending || !Number(teacherIds[item.id])} onClick={() => void action.run(async () => { await admin.transferClass(item.id, Number(teacherIds[item.id]), { locale }); setNotice(t('common.saved')); classes.reload() })}>{t('admin.transfer')}</ConfirmButton>
                     {item.status === 'active' && (
-                      <Btn size="sm" variant="ghost" onClick={() => void archive(item.id)} disabled={action.pending}>
+                      <ConfirmButton size="sm" variant="ghost" onClick={() => void archive(item.id)} disabled={action.pending}>
                         {t('manage.settings.archive')}
-                      </Btn>
+                      </ConfirmButton>
                     )}
                   </td>
                 </tr>
@@ -421,6 +430,7 @@ export function AdminAiScreen() {
               </div>
 
               <div className="flex items-center gap-4">
+                <EditButton initial={{ priority: String(provider.priority), daily_limit: String(provider.daily_limit) }} labels={{ priority: t('admin.ai.priority', { n: '' }), daily_limit: t('admin.ai.quota', { count: '' }) }} save={values => admin.updateAiProvider(provider.id, { priority: Number(values.priority), daily_limit: Number(values.daily_limit) }, { locale })} onSaved={providers.reload}/>
                 <Toggle
                   checked={provider.enabled}
                   onChange={value => void patch(provider.id, { enabled: value })}
@@ -472,10 +482,13 @@ export function AdminAuditScreen() {
   const { t, formatDateTime, locale } = useI18n()
   const [action, setAction] = useState('')
   const [page, setPage] = useState(1)
+  const [userId, setUserId] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
 
   const logs = useAsync(
-    signal => admin.auditLogs({ action: action || undefined, page }, { locale, signal }),
-    [action, page],
+    signal => admin.auditLogs({ action: action || undefined, user_id: userId ? Number(userId) : undefined, from: from || undefined, to: to || undefined, page }, { locale, signal }),
+    [action, page, userId, from, to],
   )
 
   const meta = logs.data?.meta
@@ -489,6 +502,9 @@ export function AdminAuditScreen() {
       />
 
       <div className="sm:w-64 mb-4">
+        <Input label={t('admin.audit.col.user')} type="number" value={userId} onChange={value => { setUserId(value); setPage(1) }}/>
+        <Input label={t('audit.from')} type="date" value={from} onChange={value => { setFrom(value); setPage(1) }}/>
+        <Input label={t('audit.to')} type="date" value={to} onChange={value => { setTo(value); setPage(1) }}/>
         <Select
           value={action}
           onChange={value => { setAction(value); setPage(1) }}

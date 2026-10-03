@@ -23,7 +23,7 @@ class MaterialPolicy
 {
     public function view(User $user, Material $material): bool
     {
-        return $this->manage($user, $material)
+        return $this->ownsClassroom($user, $material)
             || $material->classroom->hasAcceptedMember($user->id);
     }
 

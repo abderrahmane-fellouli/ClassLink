@@ -14,6 +14,25 @@ class NotificationController extends Controller
 {
     public function __construct(private readonly NotificationService $notifications) {}
 
+    public function preferences(Request $request): JsonResponse
+    {
+        $preferences = $request->user()->notification_preferences ?? ['email_digest' => true, 'types' => []];
+        $preferences['types'] = (object) ($preferences['types'] ?? []);
+        return response()->json($preferences);
+    }
+
+    public function updatePreferences(Request $request): JsonResponse
+    {
+        $rules = ['email_digest' => ['required', 'boolean'], 'types' => ['present', 'array:'.implode(',', NotificationService::types())]];
+        foreach (NotificationService::types() as $type) {
+            $rules['types.'.$type] = ['sometimes', 'boolean'];
+        }
+        $data = $request->validate($rules);
+        $request->user()->forceFill(['notification_preferences' => $data])->save();
+        $data['types'] = (object) $data['types'];
+        return response()->json($data);
+    }
+
     /** GET /notifications. */
     public function index(Request $request): JsonResponse
     {
@@ -31,9 +50,7 @@ class NotificationController extends Controller
     /** POST /notifications/{id}/read. */
     public function markRead(Request $request, AppNotification $notification): Response
     {
-        if ($notification->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Accès refusé.'], 403);
-        }
+        $this->authorize('update', $notification);
 
         $notification->update(['read_at' => now()]);
 

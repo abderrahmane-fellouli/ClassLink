@@ -63,6 +63,20 @@ return Application::configure(basePath: dirname(__DIR__))
         // L'API est sans état : aucun cookie de session, uniquement le
         // jeton Bearer (§16 « Vol de jeton »).
         $middleware->statefulApi();
+
+        /*
+         * §16 / NF-13 — l'API est deployee derriere le proxy de Render.
+         * Sans cette declaration, `Request::ip()` vaut l'adresse interne du
+         * proxy pour *toutes* les requetes : le journal d'audit (§16) ne
+         * tracait plus aucun client reel, et les quotas bases sur l'IP
+         * devenaient globaux — un seul utilisateur suffisait a-epuiser le
+         * quota de tout le monde.
+         *
+         * `TRUSTED_PROXIES` permet de restreindre la confiance a une plage
+         * precise ; le defaut `*` est adapte a une plateforme ou le service
+         * n'est jamais expose directement sur Internet.
+         */
+        $middleware->trustProxies(at: env('TRUSTED_PROXIES', '*'));
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->render(function (BusinessRuleException $e, Request $request) {

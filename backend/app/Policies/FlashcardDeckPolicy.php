@@ -14,7 +14,7 @@ class FlashcardDeckPolicy
 {
     public function view(User $user, $deck): bool
     {
-        return $this->manage($user, $deck->classroom)
+        return $deck->classroom->isOwnedBy($user)
             || ($deck->isPublished() && $deck->classroom->hasAcceptedMember($user->id));
     }
 
@@ -42,6 +42,6 @@ class FlashcardDeckPolicy
      */
     public function review(User $user, $deck): bool
     {
-        return $this->view($user, $deck);
+        return $this->view($user, $deck) && ! $deck->classroom->isReadOnly();
     }
 }

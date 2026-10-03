@@ -1,0 +1,45 @@
+name: Database backup
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: vars.PRODUCTION_BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      PGHOST: ${{ secrets.BACKUP_PGHOST }}
+      PGPORT: ${{ secrets.BACKUP_PGPORT }}
+      PGDATABASE: ${{ secrets.BACKUP_PGDATABASE }}
+      PGUSER: ${{ secrets.BACKUP_PGUSER }}
+      PGPASSWORD: ${{ secrets.BACKUP_PGPASSWORD }}
+      PGSSLMODE: require
+      BACKUP_DIR: ${{ runner.temp }}/classlink-backups
+      AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.BACKUP_S3_REGION }}
+      BACKUP_S3_URL: ${{ vars.BACKUP_S3_URL }}
+      BACKUP_S3_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          mkdir -p "$BACKUP_DIR"
+          bash scripts/backup.sh
+      - name: Upload to a separate private encrypted backup bucket
+        run: |
+          test -n "$BACKUP_S3_URL"
+          args=()
+          if [ -n "$BACKUP_S3_ENDPOINT" ]; then args+=(--endpoint-url "$BACKUP_S3_ENDPOINT"); fi
+          aws "${args[@]}" s3 cp "$BACKUP_DIR" "$BACKUP_S3_URL" --recursive --sse AES256 --only-show-errors
+      - name: Remove runner copies
+        if: always()
+        run: rm -rf "$BACKUP_DIR"

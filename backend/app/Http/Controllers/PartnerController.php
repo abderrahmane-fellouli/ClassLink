@@ -57,6 +57,8 @@ class PartnerController extends Controller
             'classroom_id' => ['required', 'integer', 'exists:classrooms,id'],
         ], [], ['to_user_id' => 'camarade', 'classroom_id' => 'classe']);
 
+        $this->authorize('create', [PartnerRequest::class, Classroom::findOrFail($data['classroom_id'])]);
+
         $partnerRequest = $this->partners->request(
             $request->user(),
             \App\Models\User::findOrFail($data['to_user_id']),

@@ -11,11 +11,14 @@ class FlashcardDeck extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['classroom_id', 'title', 'source', 'status', 'reviewed'];
+    protected $fillable = ['classroom_id', 'title', 'source', 'status', 'reviewed', 'reviewed_at'];
 
     protected function casts(): array
     {
-        return ['reviewed' => 'boolean'];
+        return [
+            'reviewed' => 'boolean',
+            'reviewed_at' => 'datetime',
+        ];
     }
 
     public function classroom(): BelongsTo
@@ -32,5 +35,24 @@ class FlashcardDeck extends Model
     public function isPublished(): bool
     {
         return $this->status === 'published';
+    }
+
+    /**
+     * F-IA-03 : même contrat que `Quiz::markReviewed()` — la relecture n'est
+     * posée que par une action explicite ou une modification du contenu, pas
+     * par la publication.
+     */
+    public function markReviewed(): bool
+    {
+        if ($this->reviewed && $this->reviewed_at !== null) {
+            return false;
+        }
+
+        $this->forceFill([
+            'reviewed' => true,
+            'reviewed_at' => now(),
+        ])->save();
+
+        return true;
     }
 }

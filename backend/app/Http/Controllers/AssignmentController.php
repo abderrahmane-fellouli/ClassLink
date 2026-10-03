@@ -94,6 +94,21 @@ class AssignmentController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
+        // F-DEV-01 / RG-06 : la creation d'un devoir est une publication —
+        // seuls les membres ACCEPTES sont notifies. `members()` charge deja la
+        // relation `student`.
+        $this->notifications->notifyMany(
+            $classroom->members()->get()->pluck('student'),
+            NotificationService::ASSIGNMENT_PUBLISHED,
+            [
+                'assignment_id' => $assignment->id,
+                'title' => $assignment->title,
+                'classroom_id' => $classroom->id,
+                'classroom_name' => $classroom->name,
+                'due_at' => $assignment->due_at?->toIso8601String(),
+            ]
+        );
+
         return response()->json(new AssignmentResource($assignment), 201);
     }
 

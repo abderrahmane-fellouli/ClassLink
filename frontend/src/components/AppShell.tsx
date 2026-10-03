@@ -5,7 +5,7 @@ import { useI18n, type Translate } from '../i18n'
 import { notifications as notificationsApi } from '../lib/endpoints'
 import { useAsync } from '../lib/useAsync'
 import type { Role } from '../lib/types'
-import { Icons, LocaleSwitch } from './UI'
+import { ConfirmButton, Dialog, Icons, LocaleSwitch } from './UI'
 
 type NavEntry = { to: string; labelKey: Parameters<Translate>[0]; icon: ReactNode; end?: boolean }
 
@@ -49,8 +49,8 @@ function roleLabelKey(role: Role | null) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, role, signOut } = useAuth()
-  const { t, locale, setLocale, formatRelative } = useI18n()
+  const { user, role, signOut, updateProfile } = useAuth()
+  const { t, locale, formatRelative } = useI18n()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -68,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     setPanelOpen(false)
   }, [role])
 
-  const SidebarContent = () => (
+  const sidebarContent = (
     <div className="flex flex-col h-full" style={{ background: 'var(--sidebar)' }}>
       <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
         <Icons.Logo/>
@@ -78,7 +78,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="px-5 pt-4 pb-1">
         <span
           className="text-xs font-medium px-2 py-1 rounded-md"
-          style={{ background: 'rgba(232,130,12,0.2)', color: '#FDBA74' }}
+          style={{ background: 'rgba(111,168,220,0.2)', color: 'var(--secondary)' }}
         >
           {t(roleLabelKey(role))}
         </span>
@@ -90,6 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             key={item.to}
             to={item.to}
             end={item.end}
+            onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
               `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 isActive
@@ -117,8 +118,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="text-xs font-medium text-white truncate">{user?.display_name ?? ''}</p>
           <p className="text-xs text-white/45 truncate">{user?.email ?? t('common.tagline')}</p>
         </div>
-        <LocaleSwitch locale={locale} onChange={setLocale}/>
-        <button
+        <LocaleSwitch locale={locale} onChange={value => { void updateProfile({ locale: value }).catch(() => {}) }}/>
+        <ConfirmButton variant="ghost"
           onClick={() => {
             setPanelOpen(false)
             void signOut().then(() => navigate('/login', { replace: true }))
@@ -128,7 +129,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           aria-label={t('nav.logout')}
         >
           <Icons.Logout/>
-        </button>
+        </ConfirmButton>
       </div>
     </div>
   )
@@ -139,21 +140,20 @@ export function AppShell({ children }: { children: ReactNode }) {
         className="hidden md:flex flex-col"
         style={{ width: 240, minHeight: '100vh', position: 'sticky', top: 0, background: 'var(--sidebar)' }}
       >
-        <SidebarContent/>
+        {sidebarContent}
       </aside>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setMobileOpen(false)}/>
+        <Dialog title={t('nav.dashboard')} onClose={() => setMobileOpen(false)}>
           <aside className="relative w-64 flex flex-col z-10">
-            <SidebarContent/>
+            {sidebarContent}
           </aside>
-        </div>
+        </Dialog>
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-white sticky top-0 z-40">
-          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-[var(--muted)]" aria-label="Menu">
+          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-[var(--muted)]" aria-label={t('nav.dashboard')}>
             <Icons.Menu/>
           </button>
           <div className="flex items-center gap-2">
@@ -170,7 +170,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </header>
 
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 max-w-6xl w-full mx-auto">
+        <main className={`flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 max-w-6xl w-full mx-auto ${role === 'student' ? 'pb-24 md:pb-8' : ''}`}>
+          <div className="hidden md:flex justify-end mb-4"><button aria-label={t('nav.notifications')} onClick={() => setPanelOpen(true)} className="flex items-center gap-2"><Icons.Bell/>{unread > 0 && <span>{unread}</span>}</button></div>
           {panelOpen && (
             <NotificationPanel
               onClose={() => setPanelOpen(false)}
@@ -194,6 +195,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {children}
         </main>
+        {role === 'student' && <nav aria-label={t('nav.dashboard')} className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[var(--border)] flex justify-around pb-[env(safe-area-inset-bottom)]">
+          {nav.filter(item => item.labelKey !== 'nav.join').map(item => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `flex flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] ${isActive ? 'text-[var(--primary)] font-semibold' : 'text-[var(--muted-foreground)]'}`}>
+            {item.icon}{t(item.labelKey)}
+          </NavLink>)}
+        </nav>}
       </div>
     </div>
   )
@@ -224,9 +230,8 @@ function NotificationPanel({
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label={t('nav.notifications')}>
-      <div className="absolute inset-0 bg-black/40" onClick={onClose}/>
-      <div className="relative w-full sm:w-96 h-full bg-white border-l border-[var(--border)] flex flex-col z-10">
+    <Dialog title={t('nav.notifications')} onClose={onClose}>
+      <div className="flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
           <h2 className="font-display font-semibold">{t('nav.notifications')}</h2>
           <div className="flex items-center gap-1">
@@ -289,32 +294,47 @@ function NotificationPanel({
           </button>
         </div>
       </div>
-    </div>
+    </Dialog>
   )
 }
 
 type NotificationLike = import('../lib/types').ApiNotification
 
-/** Traduit une notification à partir de son `type` et de son `payload`. */
+/**
+ * Traduit une notification à partir de son `type` et de son `payload`.
+ *
+ * Les `type` et les clés de `payload` correspondent aux constantes de
+ * `backend/app/Services/NotificationService.php` (`join_requested`,
+ * `quiz_published`, `announcement_published`…). Le backend n'a jamais émis
+ * de type à points : toute notification retombait donc sur `notif.unknown`.
+ */
 export function describeNotification(item: NotificationLike, t: Translate): string {
-  const payload = (item.payload ?? {}) as Record<string, string | number | undefined>
+  const payload = (item.payload ?? {}) as Record<string, string | number | null | undefined>
+  const field = (key: string): string => (payload[key] == null ? '' : String(payload[key]))
 
   switch (item.type) {
-    case 'join.requested':
-      return t('notif.join.requested', { name: String(payload.name ?? ''), class: String(payload.class ?? '') })
-    case 'join.accepted':
-      return t('notif.join.accepted', { class: String(payload.class ?? '') })
-    case 'join.rejected':
-      return t('notif.join.rejected', { class: String(payload.class ?? '') })
-    case 'quiz.published':
-      return t('notif.quiz.published', { title: String(payload.title ?? '') })
-    case 'assignment.graded':
-      return t('notif.assignment.graded', { title: String(payload.title ?? '') })
-    case 'announcement.created':
-      return t('notif.announcement.created', {
-        name: String(payload.name ?? ''),
-        class: String(payload.class ?? ''),
-      })
+    case 'join_requested':
+      return t('notif.join.requested', { name: field('student_name'), class: field('classroom_name') })
+    case 'membership_accepted':
+      return t('notif.join.accepted', { class: field('classroom_name') })
+    case 'membership_rejected':
+      return t('notif.join.rejected', { class: field('classroom_name') })
+    case 'membership_removed':
+      return t('notif.membership.removed', { class: field('classroom_name') })
+    case 'partner_request_received':
+      return t('notif.partner.received', { name: field('from_name'), class: field('classroom_name') })
+    case 'partner_request_answered':
+      return t('notif.partner.answered', { status: t(field('status') === 'accepted' ? 'join.status.accepted' : field('status') === 'rejected' ? 'join.status.rejected' : 'join.status.pending') })
+    case 'quiz_published':
+      return t('notif.quiz.published', { title: field('title'), class: field('classroom_name') })
+    case 'announcement_published':
+      return t('notif.announcement.published', { title: field('title'), class: field('classroom_name') })
+    case 'assignment_published':
+      return t('notif.assignment.published', { title: field('title'), class: field('classroom_name') })
+    case 'graded':
+      return t('notif.assignment.graded', { grade: field('grade') })
+    case 'ai_job_finished':
+      return t('notif.ai.finished', { status: t(['done', 'succeeded'].includes(field('status')) ? 'status.done' : field('status') === 'failed' ? 'status.failed' : 'status.processing') })
     default:
       return t('notif.unknown')
   }

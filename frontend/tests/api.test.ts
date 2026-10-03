@@ -8,7 +8,7 @@ import {
   request,
   setUnauthorizedHandler,
 } from '../src/lib/api'
-import { setToken } from '../src/lib/session'
+import { getToken, setToken } from '../src/lib/session'
 import { jsonResponse } from './setup'
 
 /** Dernier appel `fetch` : permet d'inspecter URL, method et en-tetes. */
@@ -96,6 +96,88 @@ describe('api client', () => {
     expect(error).toBeInstanceOf(SessionExpiredError)
     expect(onUnauthorized).toHaveBeenCalledOnce()
     setUnauthorizedHandler(null)
+  })
+
+  /*
+   * T-25 : un 401 porte un message explicite et traduit
+   * (`bootstrap/app.php` -> `api.errors.session_expired`). Ce message doit
+   * survivre au transport, sinon l'utilisateur est deconnecte sans jamais
+   * apprendre pourquoi.
+   */
+
+  it('keeps the translated message sent by the API on 401', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ message: 'Session expirée. Veuillez vous reconnecter.', code: 'session_expired' }, { status: 401 }),
+      ),
+    )
+
+    const error = await request('/me').catch(e => e)
+
+    expect(error).toBeInstanceOf(SessionExpiredError)
+    expect((error as ApiError).message).toBe('Session expirée. Veuillez vous reconnecter.')
+    expect(errorMessage(error, 'repli')).toBe('Session expirée. Veuillez vous reconnecter.')
+  })
+
+  it('passes the translated message to the unauthorized handler', async () => {
+    const onUnauthorized = vi.fn()
+    setUnauthorizedHandler(onUnauthorized)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ message: 'Session expirée.', code: 'session_expired' }, { status: 401 })),
+    )
+
+    await request('/me').catch(() => undefined)
+
+    expect(onUnauthorized).toHaveBeenCalledWith('Session expirée.')
+    setUnauthorizedHandler(null)
+  })
+
+  it('falls back locally when the 401 carries no usable message', async () => {
+    // Corps vide : le code brut ne doit surtout pas être affiche.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 401, headers: { 'content-type': 'application/json' } })),
+    )
+
+    const error = await request('/me').catch(e => e)
+
+    expect(error).toBeInstanceOf(SessionExpiredError)
+    expect((error as ApiError).message).toBe('')
+    expect(errorMessage(error, 'Session expirée. Veuillez vous reconnecter.')).toBe(
+      'Session expirée. Veuillez vous reconnecter.',
+    )
+  })
+
+  it('still logs out on a 401 whose body is not JSON', async () => {
+    setToken('jeton-expire')
+    const onUnauthorized = vi.fn()
+    setUnauthorizedHandler(onUnauthorized)
+    // Passerelle renvoie du HTML : la deconnexion ne doit pas echouer.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('<html>401</html>', { status: 401, headers: { 'content-type': 'text/html' } })),
+    )
+
+    const error = await request('/me').catch(e => e)
+
+    expect(error).toBeInstanceOf(SessionExpiredError)
+    expect(getToken()).toBeNull()
+    expect(onUnauthorized).toHaveBeenCalledOnce()
+    setUnauthorizedHandler(null)
+  })
+
+  it('keeps the translated message on a 401 during a download', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ message: 'Session expirée.', code: 'session_expired' }, { status: 401 })),
+    )
+
+    const error = await api.download('/me/assignments/1/file', 'devoir.pdf').catch(e => e)
+
+    expect(error).toBeInstanceOf(SessionExpiredError)
+    expect(errorMessage(error, 'repli')).toBe('Session expirée.')
   })
 
   it('downloads a private file with the token instead of a bare link', async () => {

@@ -1,78 +1,52 @@
-# =============================================================================
-# ClassLink 1.0 — Pile de developpement local
-# -----------------------------------------------------------------------------
-#   docker compose up -d
-#   docker compose exec app php artisan migrate --force
-#   docker compose exec app php artisan db:seed --force
-#   docker compose logs -f app
-#
-# Le frontend n'est PAS dans cette pile : c'est un SPA Vite lance sur la
-# machine hote (`cd frontend && npm ci && npm run dev`), dont le proxy `/api`
-# pointe vers `http://127.0.0.1:8000` (mapping de ports ci-dessous).
-# =============================================================================
-
+# Local development only. Generate backend/.env and APP_KEY first.
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: classlink-api:1.0
-    container_name: classlink-app
+    image: classlink-api:local
+    build: .
+    restart: unless-stopped
+    env_file: backend/.env
+    ports:
+      - "127.0.0.1:8000:8000"
+    stop_grace_period: 16m
+    environment:
+      APP_KEY: ${APP_KEY:?Set APP_KEY or use docker compose --env-file backend/.env}
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8000
+      FRONTEND_URL: http://localhost:5173
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: classlink
+      DB_USERNAME: classlink
+      DB_PASSWORD: classlink_local_only
+      DB_SSLMODE: disable
+      CACHE_STORE: database
+      QUEUE_CONNECTION: database
+      DB_QUEUE_RETRY_AFTER: 960
+      FILESYSTEM_DISK: local
+      MAIL_MAILER: log
+    volumes:
+      - classlink-storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16-alpine
     restart: unless-stopped
     ports:
-      - "8000:8000"
-    env_file:
-      - ./backend/.env
+      - "127.0.0.1:5432:5432"
     environment:
-      APP_ENV: local
-      APP_DEBUG: "true"
-      DB_CONNECTION: sqlite
-      # Le fichier SQLite vit dans `storage/`, seul repertoire monte en volume.
-      # Indiquer `database/database.sqlite` ici ne persisterait rien : ce
-      # repertoire appartient a la couche de l'image, pas au volume.
-      DB_DATABASE: /app/storage/database.sqlite
-      # URL publique de l'API : le proxy Vite relaie `/api` vers ce port.
-      APP_URL: http://127.0.0.1:8000
-      FRONTEND_URL: http://localhost:5173
-      # L'API est sans etat (§16) : un cache fichier suffit en local.
-      CACHE_STORE: file
-      SESSION_DRIVER: file
-      QUEUE_CONNECTION: sync
-      FILESYSTEM_DISK: local
+      POSTGRES_DB: classlink
+      POSTGRES_USER: classlink
+      POSTGRES_PASSWORD: classlink_local_only
     volumes:
-      # Stockage persistant : base SQLite, journaux, fichiers prives (§16).
-      # Aucun de ces volumes n'est servi publiquement par le serveur web.
-      - classlink-storage:/app/storage
+      - classlink-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8000/up') === false ? 1 : 0);"]
-      interval: 30s
+      test: ["CMD-SHELL", "pg_isready -U classlink -d classlink"]
+      interval: 5s
       timeout: 5s
-      retries: 3
-      start_period: 20s
-
-  # -----------------------------------------------------------------------------
-  # Base de donnees PostgreSQL de developpement (facultatif).
-  # Decommentez le bloc ci-dessous et passez DB_CONNECTION=pgsql dans
-  # backend/.env pour travailler sur le moteur utilise en production.
-  # -----------------------------------------------------------------------------
-  # db:
-  #   image: postgres:16-alpine
-  #   container_name: classlink-db
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: classlink
-  #     POSTGRES_USER: classlink
-  #     POSTGRES_PASSWORD: classlink_dev_password
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - classlink-db:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U classlink -d classlink"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-
+      retries: 20
 volumes:
   classlink-storage:
-  # classlink-db:
+  classlink-db:

@@ -78,9 +78,9 @@ export const router = createBrowserRouter([
   {
     path: '/app/classes',
     element: (
-      <ProtectedRoute roles={['student']}>
+      <ProtectedRoute roles={['student', 'teacher']}>
         <AppShell>
-          <MyClassesScreen/>
+          <RoleClasses/>
         </AppShell>
       </ProtectedRoute>
     ),
@@ -209,6 +209,10 @@ export const router = createBrowserRouter([
     ),
   },
   {
+    path: '/app/classes/:id/manage/quizzes/:quizId/edit',
+    element: <ProtectedRoute roles={['teacher']}><AppShell><QuizEditorScreen/></AppShell></ProtectedRoute>,
+  },
+  {
     path: '/app/classes/:id/manage/quizzes/:quizId/results',
     element: (
       <ProtectedRoute roles={['teacher']}>
@@ -315,6 +319,11 @@ function RoleHome() {
   if (role === 'teacher') return <TeacherDashboard/>
   if (role === 'admin') return <AdminDashboard/>
   return <StudentDashboard/>
+}
+
+function RoleClasses() {
+  const { role } = useAuth()
+  return role === 'teacher' ? <TeacherDashboard/> : <MyClassesScreen/>
 }
 
 function TeacherClassRedirect() {

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\PruneExpiredOtpCodes;
+use App\Models\AiProvider;
 use App\Models\Announcement;
 use App\Models\Classroom;
 use App\Models\Membership;
@@ -10,6 +11,7 @@ use App\Models\OtpCode;
 use App\Models\User;
 use App\Services\EmailDigestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
@@ -41,12 +43,16 @@ class InternalRouteTest extends TestCase
 
         $this->postJson('/api/internal/prune')
             ->assertNotFound();
+
+        $this->postJson('/api/internal/ai-quota-reset')
+            ->assertNotFound();
     }
 
     public function test_the_digest_routes_reject_a_missing_token(): void
     {
         $this->postJson('/api/internal/daily-digest')->assertUnauthorized();
         $this->postJson('/api/internal/prune')->assertUnauthorized();
+        $this->postJson('/api/internal/ai-quota-reset')->assertUnauthorized();
     }
 
     public function test_the_digest_routes_reject_a_wrong_token(): void
@@ -57,6 +63,10 @@ class InternalRouteTest extends TestCase
 
         $this->withHeader('X-Digest-Token', 'mauvais-secret')
             ->postJson('/api/internal/prune')
+            ->assertUnauthorized();
+
+        $this->withHeader('X-Digest-Token', 'mauvais-secret')
+            ->postJson('/api/internal/ai-quota-reset')
             ->assertUnauthorized();
     }
 
@@ -69,6 +79,111 @@ class InternalRouteTest extends TestCase
         $this->asToken($token)
             ->postJson('/api/internal/prune')
             ->assertUnauthorized();
+
+        $this->asToken($token)
+            ->postJson('/api/internal/ai-quota-reset')
+            ->assertUnauthorized();
+    }
+
+    /*
+     * F-IA-05 — la remise a zero des quotas doit etre declenchable en
+     * production, sans dependre d'un `schedule:run` qui n'y tourne pas.
+     */
+
+    private function provider(array $attributes = []): AiProvider
+    {
+        static $sequence = 0;
+
+        return AiProvider::create(array_merge([
+            'name' => 'openai-'.(++$sequence),
+            'priority' => 1,
+            'enabled' => true,
+            'daily_limit' => 20,
+            'used_today' => 0,
+        ], $attributes));
+    }
+
+    public function test_the_quota_reset_route_returns_the_number_of_providers_reset(): void
+    {
+        $this->provider(['used_today' => 12]);
+        $this->provider(['used_today' => 3]);
+
+        $response = $this->withHeader('X-Digest-Token', 'secret-de-livraison')
+            ->postJson('/api/internal/ai-quota-reset')
+            ->assertOk();
+
+        $this->assertSame(2, $response->json('reset'));
+    }
+
+    public function test_the_quota_reset_route_clears_the_daily_counter(): void
+    {
+        $provider = $this->provider([
+            'used_today' => 20,
+            'last_reset_at' => now()->subDay(),
+        ]);
+
+        $this->withHeader('X-Digest-Token', 'secret-de-livraison')
+            ->postJson('/api/internal/ai-quota-reset')
+            ->assertOk();
+
+        $provider->refresh();
+
+        $this->assertSame(0, (int) $provider->used_today);
+        $this->assertTrue(
+            $provider->last_reset_at?->isToday(),
+            'La date de remise a zero doit etre mise a jour.'
+        );
+    }
+
+    public function test_the_quota_reset_route_does_not_change_the_configured_limit(): void
+    {
+        $provider = $this->provider(['used_today' => 20, 'daily_limit' => 7]);
+
+        $this->withHeader('X-Digest-Token', 'secret-de-livraison')
+            ->postJson('/api/internal/ai-quota-reset')
+            ->assertOk();
+
+        // Seul le compteur journalier est remis a zero, pas la limite.
+        $this->assertSame(7, (int) $provider->fresh()->daily_limit);
+    }
+
+    public function test_a_student_cannot_reset_the_ai_quota(): void
+    {
+        $provider = $this->provider(['used_today' => 7]);
+
+        // Ni jeton, ni identifiant d'enseignant : la route reste fermee.
+        $this->asToken($this->tokenFor($this->student()))
+            ->postJson('/api/internal/ai-quota-reset')
+            ->assertUnauthorized();
+
+        $this->assertSame(7, (int) $provider->fresh()->used_today);
+    }
+
+    public function test_the_daily_digest_task_is_still_scheduled_for_local_use(): void
+    {
+        // La route interne ne remplace pas `routes/console.php` : un
+        // `schedule:run` local doit toujours declencher les memes taches.
+        $commands = collect(app(Schedule::class)->events())
+            ->map(fn ($event) => (string) ($event->command ?? ''))
+            ->all();
+
+        $this->assertTrue(
+            collect($commands)->contains(fn ($command) => str_contains($command, 'classlink:daily-digest')),
+            'Le resume quotidien doit rester planifie.'
+        );
+
+        $this->assertTrue(
+            collect($commands)->contains(fn ($command) => str_contains($command, 'classlink:prune')),
+            'La purge doit rester planifiee.'
+        );
+
+        // La remise a zero des quotas reste declaree (00:05), meme si la
+        // route interne en assure le declenchement en production.
+        $expressions = collect(app(Schedule::class)->events())
+            ->map(fn ($event) => $event->expression)
+            ->all();
+
+        $this->assertContains('5 0 * * *', $expressions);
     }
 
     public function test_the_digest_route_returns_the_number_of_emails_sent(): void

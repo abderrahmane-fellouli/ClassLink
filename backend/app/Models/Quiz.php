@@ -21,20 +21,24 @@ class Quiz extends Model
         'status',
         'source',
         'reviewed',
+        'reviewed_at',
         'time_limit_min',
         'max_attempts',
         'shuffle',
         'show_answers',
         'published_at',
+        'due_at',
     ];
 
     protected function casts(): array
     {
         return [
             'reviewed' => 'boolean',
+            'reviewed_at' => 'datetime',
             'shuffle' => 'boolean',
             'show_answers' => 'boolean',
             'published_at' => 'datetime',
+            'due_at' => 'datetime',
             'time_limit_min' => 'integer',
             'max_attempts' => 'integer',
         ];
@@ -79,13 +83,35 @@ class Quiz extends Model
         return $this->source === 'ai';
     }
 
-    /**
+/**
      * RG-11 / F-IA-03 : « Un quiz généré par l'IA ne peut être publié
      * qu'après relecture par l'enseignant. »
      */
     public function canBePublished(): bool
     {
-        return ! $this->isAiGenerated() || $this->reviewed;
+        return ! $this->isAiGenerated() || ($this->reviewed && $this->reviewed_at !== null);
+    }
+
+    /**
+     * F-IA-03 : pose la relecture et sa date.
+     *
+     * Appelée uniquement depuis une action explicite de l'enseignant
+     * (`POST /quizzes/{id}/review`) ou depuis une modification réelle du
+     * contenu : avoir édité les questions prouve qu'elles ont été relues.
+     * Jamais depuis `publish()` — sinon publier validerait la relecture.
+     */
+    public function markReviewed(): bool
+    {
+        if ($this->reviewed && $this->reviewed_at !== null) {
+            return false;
+        }
+
+        $this->forceFill([
+            'reviewed' => true,
+            'reviewed_at' => now(),
+        ])->save();
+
+        return true;
     }
 
     /** Barème : 1 point par question. */

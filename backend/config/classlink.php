@@ -1,5 +1,20 @@
 <?php
 
+$production = env('APP_ENV', 'production') === 'production';
+$origins = array_values(array_filter(array_map('trim', explode(',', (string) env('FRONTEND_URL', $production ? '' : 'http://localhost:5173')))));
+if ($production) {
+    foreach (array_merge([env('APP_URL', '')], $origins ?: ['']) as $url) {
+        $parts = parse_url($url);
+        if (!$parts || !filter_var($url, FILTER_VALIDATE_URL) || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host'])
+            || in_array(strtolower($parts['host']), ['localhost', '127.0.0.1', '::1'], true)
+            || str_ends_with(strtolower($parts['host']), '.invalid')
+            || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])
+            || !in_array($parts['path'] ?? '', ['', '/'], true)) {
+            throw new RuntimeException('Production APP_URL and FRONTEND_URL require explicit HTTPS origins.');
+        }
+    }
+}
+
 return [
 
     /*
@@ -8,7 +23,7 @@ return [
     |--------------------------------------------------------------------------
     */
 
-    'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
+    'frontend_url' => $origins[0] ?? '',
 
     /*
     |--------------------------------------------------------------------------
@@ -203,8 +218,5 @@ return [
     | son defaut `allowed_origins => ['*']`.
     */
 
-    'allowed_origins' => array_values(array_filter(array_map(
-        'trim',
-        explode(',', (string) env('FRONTEND_URL', 'http://localhost:5173'))
-    ))),
+    'allowed_origins' => $origins,
 ];

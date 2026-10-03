@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Btn, Card, Icons } from './UI'
+import { ConfirmButton, Card, Icons } from './UI'
+import { useI18n } from '../i18n'
 import type { Role } from '../lib/types'
 
 function FullPageLoader() {
+  const { t } = useI18n()
   return (
     <div className="min-h-dvh flex items-center justify-center bg-[var(--background)]">
       <div
         className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin"
         role="status"
-        aria-label="Chargement"
+        aria-label={t('common.loading')}
       />
     </div>
   )
@@ -51,7 +53,8 @@ export function ProtectedRoute({ children, roles }: { children: ReactNode; roles
 }
 
 export function AccessDeniedScreen() {
-  const { user, signOut } = useAuth()
+  const { signOut } = useAuth()
+  const { t } = useI18n()
   return (
     <div className="min-h-dvh flex items-center justify-center bg-[var(--background)] p-5">
       <Card className="max-w-md w-full p-8 text-center">
@@ -61,18 +64,16 @@ export function AccessDeniedScreen() {
         >
           <Icons.Shield/>
         </div>
-        <h1 className="font-display text-xl font-semibold mb-2">Accès refusé</h1>
+        <h1 className="font-display text-xl font-semibold mb-2">{t('denied.title')}</h1>
         <p className="text-sm text-[var(--muted-foreground)] mb-6">
-          {user?.display_name
-            ? 'Votre compte n’est rattaché à aucun établissement autorisé. Contactez l’administration ClassLink.'
-            : 'Votre compte n’est rattaché à aucun établissement autorisé.'}
+          {t('denied.step1')}
         </p>
         <p className="text-xs text-[var(--muted-foreground)] mb-6">
-          Un identifiant de démonstration est disponible sur l’écran de connexion en environnement de développement.
+          {t('denied.step2')}
         </p>
-        <Btn variant="secondary" full onClick={() => void signOut()}>
-          Se déconnecter
-        </Btn>
+        <ConfirmButton variant="secondary" full onClick={() => void signOut()}>
+          {t('nav.logout')}
+        </ConfirmButton>
       </Card>
     </div>
   )

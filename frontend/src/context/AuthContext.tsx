@@ -29,6 +29,12 @@ interface AuthValue {
   signOut: () => Promise<void>
   refresh: () => Promise<void>
   updateProfile: (payload: { display_name?: string; locale?: Locale }) => Promise<ApiUser>
+  /**
+   * T-25 : message 401 renvoyé par l'API lors d'une session expirée, à
+   * afficher sur l'écran de connexion. `null` si la session n'a pas été
+   * interrompue par le serveur.
+   */
+  sessionNotice: string | null
   /** RG-01 / §17.6 : rôle `denied` → écran d'accès refusé. */
   isDenied: boolean
   isPending: boolean
@@ -41,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>(() => (getToken() ? 'loading' : 'anonymous'))
   const [user, setUser] = useState<ApiUser | null>(null)
   const [token, setTokenState] = useState<string | null>(() => getToken())
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null)
 
   const signInWithResult = useCallback(
     (result: AuthResult) => {
@@ -49,6 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(result.user)
       if (result.user.locale) setLocale(result.user.locale)
       setStatus('authenticated')
+      // La reconnexion réussie efface le message de session expirée.
+      setSessionNotice(null)
     },
     [setLocale],
   )
@@ -93,11 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /* Un 401 quelles que soit sa provenance invalide la session. */
   useEffect(() => {
-    setUnauthorizedHandler(() => {
+    setUnauthorizedHandler((message: string) => {
       clearToken()
       setTokenState(null)
       setUser(null)
       setStatus('anonymous')
+      // T-25 : le message traduit par l'API est transmis à l'écran de
+      // connexion, sinon l'utilisateur est déconnecté sans explication.
+      setSessionNotice(message)
     })
     return () => setUnauthorizedHandler(null)
   }, [])
@@ -164,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refresh,
       updateProfile,
+      sessionNotice,
       isDenied: user?.role === 'denied',
       isPending: user?.role === 'pending',
     }),
@@ -178,6 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refresh,
       updateProfile,
+      sessionNotice,
     ],
   )
 

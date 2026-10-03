@@ -8,6 +8,7 @@
 **/.env
 **/.env.*
 !**/.env.example
+!**/.env.production.example
 **/auth.json
 **/.npmrc
 **/.netrc
@@ -53,3 +54,7 @@ cahier_des_charges/
 docs/
 *.md
 *.rar
+backups/
+artifacts/
+scripts/node_modules/
+backend/storage/app/*

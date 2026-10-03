@@ -1,5 +1,5 @@
 # =============================================================================
-# ClassLink 1.0 — Blueprint Render (API Laravel 11)
+# ClassLink 1.0 — Blueprint Render (API Laravel 12)
 # -----------------------------------------------------------------------------
 # Usage :
 #   1. Pousser le depot sur GitHub.
@@ -10,32 +10,20 @@
 # Documentation complete : docs/DEPLOYMENT.md
 # =============================================================================
 
-databases:
-  # Base de developpement/previsualisation. La production utilise une base
-  # managee externe (Neon / Aiven / Supabase) pour disposer de sauvegardes et
-  # d'une connexion TLS : voir `sync: false` ci-dessous.
-  - name: classlink-db
-    databaseName: classlink
-    user: classlink
-    plan: free
-    postgresMajorVersion: "16"
-
 services:
+  # Single paid, always-on runtime owns web, database worker and scheduler.
+  # External managed PostgreSQL must be provisioned by an operator.
   - type: web
     name: classlink-api
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
-    healthCheckPath: /up
-    # L'API est sans etat (§16) : un seul noeud suffit tant que le stockage
-    # des fichiers est configure sur S3 (`FILESYSTEM_DISK=s3`). Pour rester
-    # sur le disque local, utiliser un disque persistant :
-    #   disk:
-    #     name: classlink-storage
-    #     mountPath: /app/storage
-    #     sizeGB: 10
-    # DATABASE_URL est injecte automatiquement par Render.
+    plan: 1c-2g # Always-on runtime; paid, not a zero-cost claim.
+    numInstances: 1
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 300
+    healthCheckPath: /ready
+    # Production preflight requires private S3; no ephemeral local uploads.
     envVars:
       - key: APP_ENV
         value: production
@@ -50,45 +38,49 @@ services:
       - key: APP_FALLBACK_LOCALE
         value: fr
       - key: APP_KEY
-        generateValue: true
+        sync: false # php artisan key:generate --show; must decode to 32 bytes
       - key: DIGEST_TOKEN
         generateValue: true
       - key: DB_CONNECTION
         value: pgsql
-      # `fromDatabase` lie ces variables a la base declaree plus haut : aucune
-      # valeur sensible n'est ecrite dans ce fichier. Pour une base externe
-      # (Neon / Aiven / Supabase), remplacer les quatre lignes suivantes par
-      # des variables `sync: false`.
+      # Direct managed PostgreSQL endpoint, not an expiring free database.
       - key: DB_HOST
-        fromDatabase:
-          name: classlink-db
-          property: host
+        sync: false
       - key: DB_PORT
-        fromDatabase:
-          name: classlink-db
-          property: port
+        value: "5432"
       - key: DB_DATABASE
-        fromDatabase:
-          name: classlink-db
-          property: database
+        sync: false
       - key: DB_USERNAME
-        fromDatabase:
-          name: classlink-db
-          property: user
+        sync: false
       - key: DB_PASSWORD
-        fromDatabase:
-          name: classlink-db
-          property: password
+        sync: false
       - key: DB_SSLMODE
         value: require
+      # §16 / NF-13 : l'API est derriere le proxy de Render. Sans cette
+      # declaration, `Request::ip()` renvoie l'adresse interne du proxy pour
+      # toutes les requetes : le journal d'audit ne trace plus le client reel
+      # et les quotas bases sur l'IP deviennent globaux. Restreindre a une
+      # plage precise si le service est expose directement sur Internet.
+      - key: TRUSTED_PROXIES
+        value: "*"
       - key: SESSION_DRIVER
-        value: file
+        value: database
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning
+      - key: APP_TIMEZONE
+        value: UTC
       - key: SESSION_LIFETIME
         value: "480"
       - key: CACHE_STORE
         value: database
       - key: QUEUE_CONNECTION
-        value: sync
+        value: database
+      - key: DB_QUEUE_RETRY_AFTER
+        value: "960"
       - key: FILESYSTEM_DISK
         value: s3
       - key: MAIL_MAILER
@@ -123,6 +115,16 @@ services:
         sync: false # ex. eu-west-3
       - key: AWS_BUCKET
         sync: false # REQUIRED si s3 — seau PRIVE
+      - key: AWS_ENDPOINT
+        sync: false # S3-compatible HTTPS endpoint; blank for AWS
+      - key: AWS_USE_PATH_STYLE_ENDPOINT
+        value: "false"
+      - key: AI_PROVIDER_1_BASE_URL
+        value: https://api.openai.com/v1
+      - key: AI_PROVIDER_2_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: AI_PROVIDER_3_BASE_URL
+        value: https://api.mistral.ai/v1
       # §15.2 — le nom est fixe en base (§15.2) ; seules les cles varient.
       # `AI_PROVIDER_1` = OpenAI, `AI_PROVIDER_2` = Groq,
       # `AI_PROVIDER_3` = Mistral (voir backend/config/services.php).
@@ -142,8 +144,7 @@ services:
       - key: DEV_AUTH_ENABLED
         value: "false"
     # Migrations appliquees AVANT de deplacer le trafic vers la nouvelle image.
-    # `preDeployCommand` est le bon crochet : les migrations sont additivies
-    # (aucune suppression de donnees), voir docs/DEPLOYMENT.md.
+    # Review compatibility and back up before every migration.
     preDeployCommand: php artisan migrate --force
     # Aucune commande de demarrage : le `CMD` du Dockerfile lance le serveur.
     # Aucun `buildCommand` : Render ignore ce champ en runtime `docker`.

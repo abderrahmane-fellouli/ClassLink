@@ -8,6 +8,7 @@ import type {
   ApiAssignment,
   ApiAttemptResult,
   ApiAttemptStart,
+  ApiActiveAttempt,
   ApiAuditLog,
   ApiClassroom,
   ApiClassroomProgress,
@@ -21,6 +22,7 @@ import type {
   ApiPartnerProfile,
   ApiPartnerRequest,
   ApiQuiz,
+  ApiQuestion,
   ApiQuizResults,
   ApiStats,
   ApiStudentProgress,
@@ -30,6 +32,8 @@ import type {
   Locale,
   ListResponse,
   Paginated,
+  NotificationPreferences,
+  RosterImportResult,
 } from './types'
 
 /** Contexte de langue propagé à chaque appel (Accept-Language). */
@@ -108,6 +112,11 @@ export const classrooms = {
 
   acceptAll: (classroomId: number, ctx?: Ctx) =>
     api.post<{ accepted: number }>(`/classes/${classroomId}/join-requests/accept-all`, undefined, ctx),
+  importMembers: (id: number, file: File, ctx?: Ctx) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.postForm<RosterImportResult>(`/classes/${id}/members/import`, form, ctx)
+  },
 }
 
 export const joinRequests = {
@@ -166,6 +175,10 @@ export const content = {
 /* ── 12.4 Quiz ─────────────────────────────────────────────────────── */
 
 export const quizzes = {
+  addQuestion: (id: number, payload: unknown, ctx?: Ctx) => api.post<ApiQuestion>(`/quizzes/${id}/questions`, payload, ctx),
+  updateQuestion: (id: number, payload: unknown, ctx?: Ctx) => api.patch<ApiQuestion>(`/questions/${id}`, payload, ctx),
+  deleteQuestion: (id: number, ctx?: Ctx) => api.delete<void>(`/questions/${id}`, ctx),
+  reorderQuestions: (id: number, questionIds: number[], ctx?: Ctx) => api.post(`/quizzes/${id}/questions/reorder`, { question_ids: questionIds }, ctx),
   /**
    * La même route renvoie `QuizResource` côté gestionnaire et
    * `StudentQuizResource` côté étudiant : deux accesseurs typés plutôt
@@ -197,11 +210,20 @@ export const quizzes = {
   startAttempt: (id: number, ctx?: Ctx) =>
     api.post<ApiAttemptStart>(`/quizzes/${id}/attempts`, undefined, ctx),
 
+  /**
+   * F-QUI-04 : tentative déjà commencée, pour la reprendre après un
+   * rechargement ou un changement d'appareil. `attempt: null` = rien en cours.
+   */
+  activeAttempt: (id: number, ctx?: Ctx) =>
+    api.get<{ attempt: ApiActiveAttempt | null }>(`/quizzes/${id}/attempts/active`, ctx),
+
   submitAttempt: (
     attemptId: number,
-    payload: { answers: { question_id: number; selected_option_ids: number[] }[] },
+    payload: { answers: { question_id: number; option_ids: number[] }[] },
     ctx?: Ctx,
   ) => api.post<ApiAttemptResult>(`/attempts/${attemptId}/submit`, payload, ctx),
+  saveAnswers: (attemptId: number, payload: { answers: { question_id: number; option_ids: number[] }[] }, ctx?: Ctx) =>
+    api.patch<{ saved: number }>(`/attempts/${attemptId}/answers`, payload, ctx),
 
   attempt: (attemptId: number, ctx?: Ctx) => api.get<ApiAttemptResult>(`/attempts/${attemptId}`, ctx),
 
@@ -295,6 +317,8 @@ export const partners = {
 }
 
 export const notifications = {
+  preferences: (ctx?: Ctx) => api.get<NotificationPreferences>('/me/notification-preferences', ctx),
+  updatePreferences: (payload: NotificationPreferences, ctx?: Ctx) => api.put<NotificationPreferences>('/me/notification-preferences', payload, ctx),
   list: (ctx?: Ctx) =>
     api.get<{ data: ApiNotification[]; unread_count: number }>('/notifications', ctx),
 
@@ -325,6 +349,26 @@ export const flashcards = {
     payload: { title: string; cards: { front: string; back: string }[] },
     ctx?: Ctx,
   ) => api.post<ApiFlashcardDeck>(`/classes/${classroomId}/flashcards`, payload, ctx),
+
+  /** F-QUI-08 : renomme un deck. Une vraie édition vaut relecture. */
+  updateDeck: (deckId: number, payload: { title: string }, ctx?: Ctx) =>
+    api.patch<ApiFlashcardDeck>(`/flashcard-decks/${deckId}`, payload, ctx),
+
+  /** F-QUI-08 : corrige le recto/verso d'une carte. */
+  updateCard: (
+    deckId: number,
+    cardId: number,
+    payload: { front: string; back: string },
+    ctx?: Ctx,
+  ) => api.patch<{ data: { id: number; front: string; back: string } }>(
+    `/flashcard-decks/${deckId}/cards/${cardId}`,
+    payload,
+    ctx,
+  ),
+
+  /** F-QUI-08 : supprime une carte. */
+  deleteCard: (deckId: number, cardId: number, ctx?: Ctx) =>
+    api.delete<void>(`/flashcard-decks/${deckId}/cards/${cardId}`, ctx),
 
   publish: (deckId: number, ctx?: Ctx) =>
     api.post<ApiFlashcardDeck | { message: string; requires_review: boolean }>(

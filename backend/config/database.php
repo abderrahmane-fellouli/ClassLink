@@ -105,7 +105,14 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
-            'sslmode' => 'prefer',
+            /*
+             * §16 / NF-13 — la connexion PostgreSQL de production doit etre
+             * chiffree. `render.yaml` fixe `DB_SSLMODE=require` ; sans cette
+             * lecture, la valeur etait ignoree et le mode effectif restait
+             * `prefer`, c'est-a-dire une degradation silencieuse possible vers
+             * une connexion en clair.
+             */
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
         'sqlsrv' => [

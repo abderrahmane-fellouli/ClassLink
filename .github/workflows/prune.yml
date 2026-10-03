@@ -1,3 +1,4 @@
+# Manual recovery only. Normal scheduling is the container's schedule:run process.
 # =============================================================================
 # ClassLink 1.0 — Purge des codes OTP et des jetons expires (F-AUTH-07 / §11)
 # -----------------------------------------------------------------------------
@@ -17,19 +18,7 @@
 name: Prune expired data
 
 on:
-  schedule:
-    # 03:00 UTC : avant le resume de 07:00, pour que les codes expires du
-    # jour ne restent pas en base.
-    - cron: '0 3 * * *'
   workflow_dispatch:
-  push:
-    branches: [main, master]
-    paths:
-      - 'backend/app/Jobs/PruneExpiredOtpCodes.php'
-      - 'backend/app/Services/OtpService.php'
-      - 'backend/app/Services/TokenService.php'
-      - 'backend/routes/api.php'
-      - '.github/workflows/prune.yml'
 
 concurrency:
   group: prune-expired

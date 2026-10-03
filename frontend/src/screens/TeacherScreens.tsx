@@ -11,6 +11,7 @@ import {
   AsyncBoundary,
   Badge,
   Btn,
+  ConfirmButton,
   Card,
   EmptyState,
   Icons,
@@ -27,7 +28,7 @@ export function TeacherDashboard() {
   const { user } = useAuth()
 
   const classes = useAsync(signal => classrooms.list({ signal }), [])
-  const myClasses = classes.data?.data ?? []
+  const myClasses = classes.data?.data.filter(item => item.status === 'active') ?? []
 
   /* Comptages agrégés : chaque appel est déjà limité à une classe. */
   const aggregates = useAsync(
@@ -198,14 +199,14 @@ export function TeacherRequestsScreen() {
                   <p className="text-xs text-[var(--muted-foreground)]">{group.classroom.subject}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Btn
+                   <ConfirmButton
                     size="sm"
                     variant="success"
                     onClick={() => void acceptAll(group.classroom.id)}
                     disabled={accept.pending}
                   >
                     {t('manage.accepted')} · {group.members.length}
-                  </Btn>
+                   </ConfirmButton>
                   <Link to={`/app/classes/${group.classroom.id}/manage?tab=requests`}>
                     <Btn size="sm" variant="secondary">{t('common.open')}</Btn>
                   </Link>
@@ -323,7 +324,7 @@ export function ClassProgressScreen() {
                   <Card className="p-5">
                     <p className="text-sm font-medium mb-2">{t('progress.inactive')}</p>
                     <p className="text-xs text-[var(--muted-foreground)]">
-                      {progress.data?.inactive_student_ids.join(', ')}
+                       {progress.data?.inactive_students.map(student => student.display_name).join(', ')}
                     </p>
                   </Card>
                 )}
@@ -351,6 +352,8 @@ export function CreateClassScreen() {
   })
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [created, setCreated] = useState<ApiClassroom | null>(null)
+  const [copied, setCopied] = useState(false)
+  const copy = useAction()
 
   async function submit() {
     setFieldErrors({})
@@ -379,6 +382,8 @@ export function CreateClassScreen() {
           <div className="px-4 py-3 rounded-lg bg-[var(--secondary)] mb-5">
             <p className="text-xs text-[var(--muted-foreground)] mb-1">{t('manage.settings.code')}</p>
             <p className="font-mono text-2xl font-bold tracking-widest text-[var(--primary)]">{created.join_code}</p>
+            <Btn size="sm" variant="secondary" onClick={() => void copy.run(async () => { await navigator.clipboard.writeText(created.join_code ?? ''); setCopied(true) })}>{t(copied ? 'common.copied' : 'common.copy')}</Btn>
+            {copy.error && <Alert type="error" message={t('common.error')}/>}
           </div>
           <div className="flex gap-2 justify-center">
             <Btn onClick={() => navigate(`/app/classes/${created.id}/manage`)}>{t('createClass.manage')}</Btn>
@@ -397,8 +402,9 @@ export function CreateClassScreen() {
         {create.error && <Alert message={errorMessage(create.error, t('error.unknown'))} type="error"/>}
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">{t('createClass.name')}</label>
+          <label htmlFor="class-name" className="text-sm font-medium">{t('createClass.name')}</label>
           <input
+            id="class-name"
             value={form.name}
             onChange={event => setForm({ ...form, name: event.target.value })}
             placeholder={t('createClass.namePlaceholder')}
@@ -408,8 +414,9 @@ export function CreateClassScreen() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">{t('createClass.subject')}</label>
+          <label htmlFor="class-subject" className="text-sm font-medium">{t('createClass.subject')}</label>
           <input
+            id="class-subject"
             value={form.subject}
             onChange={event => setForm({ ...form, subject: event.target.value })}
             placeholder={t('createClass.subjectPlaceholder')}
@@ -420,8 +427,9 @@ export function CreateClassScreen() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">{t('createClass.group')}</label>
+            <label htmlFor="class-group" className="text-sm font-medium">{t('createClass.group')}</label>
             <input
+              id="class-group"
               value={form.group_label}
               onChange={event => setForm({ ...form, group_label: event.target.value })}
               placeholder={t('createClass.groupPlaceholder')}
@@ -430,8 +438,9 @@ export function CreateClassScreen() {
             {fieldErrors.group_label && <p className="text-xs text-[var(--danger)]">{fieldErrors.group_label}</p>}
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">{t('createClass.year')}</label>
+            <label htmlFor="class-year" className="text-sm font-medium">{t('createClass.year')}</label>
             <input
+              id="class-year"
               value={form.school_year}
               onChange={event => setForm({ ...form, school_year: event.target.value })}
               className="w-full px-3.5 py-2.5 text-sm border border-[var(--border)] rounded-lg outline-none focus:ring-2 focus:ring-[var(--primary)]"

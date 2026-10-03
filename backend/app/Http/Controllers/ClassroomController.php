@@ -30,6 +30,8 @@ class ClassroomController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
+        $data = $request->validate(['status' => ['sometimes', 'in:active,archived,all']]);
+        $status = $data['status'] ?? 'active';
 
         if ($user->isTeacher()) {
             $classes = Classroom::where('teacher_id', $user->id)
@@ -47,6 +49,10 @@ class ClassroomController extends Controller
                 ->with('teacher')
                 ->withCount('memberships')
                 ->get();
+        }
+
+        if ($status !== 'all') {
+            $classes = $classes->where('status', $status)->values();
         }
 
         return response()->json(['data' => ClassroomResource::collection($classes)]);
@@ -209,7 +215,7 @@ class ClassroomController extends Controller
     /** §12.2 — POST /classes/{id}/join-requests/accept-all. F-REQ-05. */
     public function acceptAll(Request $request, Classroom $classroom): JsonResponse
     {
-        $this->authorize('decideJoinRequest', $classroom);
+        $this->authorize('modify', $classroom);
 
         $count = $this->memberships->acceptAll($request->user(), $classroom);
 
@@ -219,7 +225,7 @@ class ClassroomController extends Controller
     /** §12.2 — POST /join-requests/{id}/accept. F-REQ-04. */
     public function accept(Request $request, Membership $membership): MembershipResource
     {
-        $this->authorize('decideJoinRequest', $membership->classroom);
+        $this->authorize('decide', $membership);
 
         return new MembershipResource(
             $this->memberships->accept($request->user(), $membership)
@@ -229,7 +235,7 @@ class ClassroomController extends Controller
     /** §12.2 — POST /join-requests/{id}/reject. F-REQ-04 / RG-07. */
     public function reject(Request $request, Membership $membership): MembershipResource
     {
-        $this->authorize('decideJoinRequest', $membership->classroom);
+        $this->authorize('decide', $membership);
 
         return new MembershipResource(
             $this->memberships->reject($request->user(), $membership)
@@ -242,30 +248,39 @@ class ClassroomController extends Controller
      */
     public function importMembers(Request $request, Classroom $classroom): JsonResponse
     {
-        $this->authorize('manage', $classroom);
+        $this->authorize('modify', $classroom);
 
         $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt', 'max:2048'],
         ]);
 
         $rows = [];
-
-        $handle = $request->file('file')->getRealPath();
-        if ($handle) {
+        $errors = [];
+        $handle = fopen($request->file('file')->getRealPath(), 'rb');
+        try {
             $header = fgetcsv($handle);
+            $header = array_map(fn ($value) => strtolower(trim((string) $value, "\xEF\xBB\xBF \t\r\n")), $header ?: []);
+            if (! in_array('email', $header, true) || count($header) !== count(array_unique($header))) {
+                throw new BusinessRuleException('CSV must contain a unique email header.', 422);
+            }
+            $number = 1;
             while (($line = fgetcsv($handle)) !== false) {
-                if ($line === false || $line === [null]) {
+                $number++;
+                if (count($line) !== count($header)) {
+                    $errors[] = ['row' => $number, 'reason' => 'column_count'];
                     continue;
                 }
-                $row = array_combine((array) $header, $line);
-                if (is_array($row)) {
-                    $rows[] = $row;
-                }
+                $row = array_combine($header, $line);
+                $row['_row'] = $number;
+                $rows[] = $row;
             }
+        } finally {
+            fclose($handle);
         }
 
-        $count = $this->memberships->importAccepted($request->user(), $classroom, $rows);
+        $result = $this->memberships->importAccepted($request->user(), $classroom, $rows);
+        $result['errors'] = array_merge($errors, $result['errors']);
 
-        return response()->json(['imported' => $count], 201);
+        return response()->json($result, 201);
     }
 }

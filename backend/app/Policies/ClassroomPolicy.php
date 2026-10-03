@@ -37,10 +37,20 @@ class ClassroomPolicy
     /** F-REQ-08 : retirer un étudiant. */
     public function removeMember(User $user, Classroom $class): bool
     {
-        return $this->manage($user, $class);
+        return $this->modify($user, $class);
     }
 
     public function decideJoinRequest(User $user, Classroom $class): bool
+    {
+        return $this->manage($user, $class);
+    }
+
+    public function transfer(User $user, Classroom $class): bool
+    {
+        return $user->isAdmin() && ! $class->isReadOnly();
+    }
+
+    public function archive(User $user, Classroom $class): bool
     {
         return $this->manage($user, $class);
     }

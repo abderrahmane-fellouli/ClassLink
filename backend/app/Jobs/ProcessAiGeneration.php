@@ -24,8 +24,7 @@ use Illuminate\Support\Str;
  * §15.3 « Exécution : en arrière-plan, avec suivi de l'état (queued,
  * processing, done, failed) ».
  *
- * §17.11 : « En version 1.0, la génération IA s'exécute avec
- * dispatchAfterResponse() pour éviter un processus séparé. »
+ * Executed by a database queue worker, independently of the HTTP response.
  *
  * Règle non négociable — F-IA-03 / RG-11 : le contenu produit reste un
  * BROUILLON (`status = draft`, `reviewed = false`). Aucun chemin de ce
@@ -36,21 +35,29 @@ class ProcessAiGeneration implements ShouldQueue
     use Queueable;
 
     public int $tries = 1;
+    public int $timeout = 600;
+    public bool $failOnTimeout = true;
 
-    public function __construct(public readonly int $aiJobId) {}
+    public function __construct(public readonly int $aiJobId, public readonly ?string $extractedText = null) {}
 
     public function handle(AiService $ai, NotificationService $notifications, PdfTextExtractor $pdf): void
     {
         $job = AiJob::with('teacher', 'classroom')->find($this->aiJobId);
 
-        if (! $job) {
+        if (! $job || $job->status !== AiJobStatus::Queued) {
             return;
         }
 
-        $job->update(['status' => AiJobStatus::Processing, 'started_at' => now()]);
+        if (! AiJob::whereKey($job->id)->where('status', 'queued')
+            ->update(['status' => 'processing', 'started_at' => now()])) {
+            return;
+        }
 
         try {
-            $text = $this->extractText($job, $pdf);
+            if ($job->classroom->isReadOnly() || $job->classroom->teacher_id !== $job->teacher_id) {
+                throw new PdfExtractionException('Class is archived or ownership has changed.');
+            }
+            $text = $this->extractedText ?? $this->extractText($job, $pdf);
 
             $result = $ai->generate($text, $job->file_hash, $job->target->value);
 
@@ -131,7 +138,20 @@ class ProcessAiGeneration implements ShouldQueue
             throw new PdfExtractionException(__('api.ai.pdf_not_found'));
         }
 
-        $extracted = $pdf->extract($disk->path($job->file_path));
+        // S3 has no local path. Extract through a bounded temporary stream.
+        $path = tempnam(sys_get_temp_dir(), 'classlink-pdf-');
+        $input = $disk->readStream($job->file_path);
+        $output = fopen($path, 'wb');
+        try {
+            stream_copy_to_stream($input, $output);
+            fclose($output);
+            $output = null;
+            $extracted = $pdf->extract($path);
+        } finally {
+            if (is_resource($input)) { fclose($input); }
+            if (is_resource($output)) { fclose($output); }
+            unlink($path);
+        }
 
         // §15.3 : nombre de pages maximum, contrôlé avant tout appel réseau.
         $maxPages = (int) config('classlink.ai.max_pages', 30);
@@ -142,6 +162,8 @@ class ProcessAiGeneration implements ShouldQueue
                 __('api.ai.too_many_pages', ['pages' => $pageCount, 'max' => $maxPages])
             );
         }
+
+        $job->update(['page_count' => $pageCount]);
 
         return $extracted['text'];
     }
@@ -222,5 +244,13 @@ class ProcessAiGeneration implements ShouldQueue
             'error' => Str::limit($message, 1000, ''),
             'finished_at' => now(),
         ]);
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        $job = AiJob::find($this->aiJobId);
+        if ($job && ! $job->isTerminal()) {
+            $this->fail($job, 'Generation interrupted. Manual creation remains available.');
+        }
     }
 }

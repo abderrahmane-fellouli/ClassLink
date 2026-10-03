@@ -28,6 +28,7 @@ class StudentQuizResource extends \Illuminate\Http\Resources\Json\JsonResource
             'shuffle' => (bool) $this->shuffle,
             'show_answers' => (bool) $this->show_answers,
             'published_at' => $this->published_at?->toIso8601String(),
+            'due_at' => $this->due_at?->toIso8601String(),
 
             'classroom' => $this->whenLoaded('classroom', fn () => [
                 'id' => $this->classroom->id,

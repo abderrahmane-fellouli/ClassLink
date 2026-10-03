@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Outfit:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Poppins:wght@600&family=JetBrains+Mono:wght@400;600&display=swap');
 @import 'tailwindcss';
 
 @theme inline {
@@ -20,29 +20,32 @@
 }
 
 :root {
-  --background: #F7F8FC;
-  --foreground: #0D1B2A;
+  --background: #FAF6EE;
+  --foreground: #1B2733;
   --card: #FFFFFF;
-  --card-foreground: #0D1B2A;
-  --primary: #1A3A6B;
+  --card-foreground: #1B2733;
+  --primary: #1E5AA8;
   --primary-foreground: #FFFFFF;
-  --secondary: #EEF1FA;
-  --secondary-foreground: #1A3A6B;
-  --muted: #E8EBF5;
+  --secondary: #DCEAF7;
+  --secondary-foreground: #0F2A4A;
+  --muted: #EDE2CF;
   --muted-foreground: #5A6580;
-  --accent: #E8820C;
+  --accent: #1E5AA8;
   --accent-foreground: #FFFFFF;
-  --border: #D6DAE8;
-  --ring: #1A3A6B;
-  --radius: 10px;
+  --border: #C9B48E;
+  --ring: #1E5AA8;
+  --radius: 8px;
 
-  --sidebar: #0D1B2A;
+  --sidebar: #0F2A4A;
   --sidebar-fg: #FFFFFF;
   --sidebar-muted: rgba(255,255,255,0.45);
   --sidebar-active: rgba(255,255,255,0.12);
-  --success: #16A34A;
-  --warning: #D97706;
-  --danger: #DC2626;
+  --success: #2E8B6E;
+  --warning: #E5A93C;
+  --danger: #D9483B;
+  --danger-strong: #B83A2F;
+  --success-strong: #23715A;
+  --sky: #6FA8DC;
 }
 
 * {
@@ -54,19 +57,39 @@ html {
 }
 
 body {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', sans-serif;
   background: var(--background);
   color: var(--foreground);
   margin: 0;
 }
 
-/* Al Adarissa — Fès : couverture des caractères arabes (§1.5). */
-.font-arabic {
-  font-family: 'Al Adarissa', 'Outfit', sans-serif;
+.font-display {
+  font-family: 'Poppins', sans-serif;
+  color: var(--sidebar);
 }
 
-.font-display {
-  font-family: 'Fraunces', serif;
+.font-mono { font-family: 'JetBrains Mono', monospace; }
+.font-medium, .font-bold { font-weight: 600; }
+aside [class*="text-white/"] { color: rgba(255, 255, 255, 0.85); }
+/* Keep the established SVG set, rendering UI glyphs as outlines, not brand marks. */
+svg[fill="currentColor"] { fill: none; stroke: currentColor; stroke-width: 1; stroke-linejoin: round; }
+.text-xs, .text-sm, .text-\[9px\], .text-\[10px\], .text-\[11px\] { font-size: 16px; }
+.text-lg { font-size: 20px; }
+.text-3xl, .text-4xl, .text-5xl { font-size: 32px; }
+.shadow-lg, .shadow-xl, .shadow-2xl { box-shadow: none; }
+.font-display.text-white { color: white; }
+button, select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
+button { min-width: 44px; }
+input, textarea, select { min-width: 0; max-width: 100%; }
+[role="switch"] { min-width: 44px; min-height: 44px; }
+.bg-\[var\(--card\)\] { border-radius: 12px; }
+input[type="file"].hidden { display: block; max-width: 100%; }
+@media (max-width: 767px) {
+  button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
+  button { min-width: 44px; }
+  a { display: inline-flex; align-items: center; }
+  nav.fixed.bottom-0 > a { flex: 1; min-width: 0; text-align: center; overflow-wrap: anywhere; }
+  .p-4.flex, .px-4.py-3.flex, .flex.gap-1\.5 { flex-wrap: wrap; }
 }
 
 :focus-visible {

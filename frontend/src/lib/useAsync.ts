@@ -13,7 +13,7 @@ export interface AsyncState<T> {
 /** Normalise une rejection quelconque en `Error`. */
 export function toError(cause: unknown): Error {
   if (cause instanceof Error) return cause
-  return new Error(typeof cause === 'string' ? cause : 'Erreur inattendue.')
+  return new Error(typeof cause === 'string' ? cause : '')
 }
 
 /**
@@ -73,8 +73,11 @@ export function useAsync<T>(loader: (signal: AbortSignal) => Promise<T>, deps: u
 export function useAction() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const running = useRef(false)
 
   const run = useCallback(async <T,>(task: () => Promise<T>): Promise<T | null> => {
+    if (running.current) return null
+    running.current = true
     setPending(true)
     setError(null)
     try {
@@ -83,6 +86,7 @@ export function useAction() {
       setError(toError(cause))
       return null
     } finally {
+      running.current = false
       setPending(false)
     }
   }, [])

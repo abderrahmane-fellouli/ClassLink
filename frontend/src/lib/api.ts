@@ -34,21 +34,53 @@ export class ApiError extends Error {
   }
 }
 
-/** 401 : la session est perdue, l'application doit revenir à la connexion. */
+/**
+ * 401 : la session est perdue, l'application doit revenir à la connexion.
+ *
+ * T-25 : l'API renvoie un message **explicite et traduit**
+ * (`bootstrap/app.php` → `api.errors.session_expired`). Il doit survivre au
+ * transport, sinon l'utilisateur est renvoyé vers la connexion sans jamais
+ * apprendre pourquoi sa session s'est terminée.
+ */
 export class SessionExpiredError extends ApiError {
-  constructor() {
-    super(401, 'session_expired', { code: 'session_expired' })
+  /**
+   * `message` reste vide si l'API n'a rien renvoyé : `errorMessage()` utilise
+   * alors son `fallback` local. Le code brut `session_expired` ne doit jamais
+   * être affiché tel quel à l'utilisateur.
+   */
+  constructor(message = '') {
+    super(401, message, { code: 'session_expired' })
     this.name = 'SessionExpiredError'
   }
 }
 
-type UnauthorizedHandler = () => void
+/**
+ * Reçoit le message 401 traduit par l'API pour que l'écran de connexion
+ * puisse expliquer la déconnexion (T-25).
+ */
+type UnauthorizedHandler = (message: string) => void
 
 let onUnauthorized: UnauthorizedHandler | null = null
 
 /** Branché une fois par AuthProvider : vide le jeton et redirige. */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
   onUnauthorized = handler
+}
+
+/**
+ * Lit le corps d'une réponse 401 pour en extraire le message traduit.
+ * Un corps absent, non JSON ou vide ne doit jamais faire échouer la
+ * déconnexion : on renvoie alors le libellé par défaut.
+ */
+async function readSessionMessage(response: Response): Promise<string> {
+  try {
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('application/json')) return ''
+    const payload = (await response.json().catch(() => null)) as { message?: unknown } | null
+    return typeof payload?.message === 'string' ? payload.message : ''
+  } catch {
+    return ''
+  }
 }
 
 export interface RequestOptions {
@@ -98,9 +130,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   })
 
   if (response.status === 401) {
+    const message = await readSessionMessage(response)
     clearToken()
-    onUnauthorized?.()
-    throw new SessionExpiredError()
+    onUnauthorized?.(message)
+    throw new SessionExpiredError(message)
   }
 
   if (options.empty && response.status === 204) {
@@ -146,9 +179,10 @@ async function download(
   })
 
   if (response.status === 401) {
+    const message = await readSessionMessage(response)
     clearToken()
-    onUnauthorized?.()
-    throw new SessionExpiredError()
+    onUnauthorized?.(message)
+    throw new SessionExpiredError(message)
   }
 
   const contentType = response.headers.get('content-type') ?? ''
@@ -210,9 +244,12 @@ export const api = {
 
 export function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
-    if (error.code === 'session_expired') {
-      return fallback
-    }
+    /*
+     * T-25 : le message « session expirée » est renvoyé par l'API et traduit
+     * selon la locale. Le remplacer par le `fallback` local effaçait cette
+     * information et laissait l'utilisateur devant un écran de connexion
+     * muet. Le `fallback` ne sert que si l'API n'a rien renvoyé.
+     */
     return error.message || fallback
   }
   if (error instanceof Error && error.message) {

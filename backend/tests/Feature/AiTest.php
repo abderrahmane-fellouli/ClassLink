@@ -617,6 +617,7 @@ class AiTest extends TestCase
 
     public function test_failed_generations_do_not_consume_the_teacher_quota(): void
     {
+        $this->fakePdfText();
         [$classroom, $teacher] = $this->classWithMember();
 
         AiJob::create([

@@ -1,17 +1,17 @@
 # ClassLink 1.0 — Platforme éducative OFPPT
 
-[![Laravel 11](https://img.shields.io/badge/Laravel-11.57-red.svg)](https://laravel.com/)
+[![Laravel 12](https://img.shields.io/badge/Laravel-12.69-red.svg)](https://laravel.com/)
 [![React 19 + Vite 8](https://img.shields.io/badge/React-19%20%2B%20Vite-8-blue.svg)](https://vitejs.dev/)
 [![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%2B-777BB4.svg)](https://www.php.net/)
 [![Node 22](https://img.shields.io/badge/Node-22.20-green.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/Tests-Laravel%20246%20+%20Vitest%2031-success.svg)](./README.md)
+[![CI](https://img.shields.io/badge/CI-tests%20%2B%20security%20%2B%20infrastructure-blue.svg)](./.github/workflows/ci.yml)
 
 ClassLink est une plateforme d'apprentissage collaborative destinée à l'écosystème OFPPT (@ofppt-edu.ma). Elle permet aux enseignants et aux étudiants de partager des ressources, gérer des classes, des quiz, des devoirs, des flashcards et de bénéficier d'une génération IA pour la création de quiz (avec prévisualisation obligatoire). L'authentification s'appuie exclusivement sur Microsoft Entra ID et sur un code à usage unique (OTP) en secours ; aucun mot de passe n'est utilisé. Les règles d'accès (RG-01/RG-02) sont appliquées strictement côté serveur.
 
 - **Cahier des charges** : [`cahier_des_charges/ClassLink_Cahier_des_charges.docx`](./cahier_des_charges/ClassLink_Cahier_des_charges.docx)
 - **Maquettes & design** : [`design/`](./design/)
 - **Documentation technique** : [`docs/`](./docs/)
-- **API (Laravel 11)** : [`backend/`](./backend/)
+- **API (Laravel 12)** : [`backend/`](./backend/)
 - **Frontend (React + Vite + TS)** : [`frontend/`](./frontend/)
 
 ## Caractéristiques principales
@@ -69,7 +69,7 @@ npx tsc -b --noEmit
 npm run build
 ```
 
-Résultats (état de livraison) : backend 246 tests, 641 assertions, 0 échec ; frontend 31 tests, 0 échec ; typecheck et build de production sans avertissement. Les mentions de dépréciation visibles en PHP 8.5 proviennent des dépendances, pas du code ClassLink — voir [`docs/ASSUMPTIONS.md`](./docs/ASSUMPTIONS.md).
+Les resultats courants et limites de verification sont consignes dans [`docs/INFRA_COMPLETION.md`](./docs/INFRA_COMPLETION.md). CI installe les dependances proprement, teste SQLite/PostgreSQL, construit le frontend et l'image, execute les audits de securite et les controles d'infrastructure. Un audit en echec bloque la livraison. Les deprecations PHP 8.5 locales ne sont pas une preuve de compatibilite du runtime PHP 8.3.
 
 ## Sécurité & confidentialité
 
@@ -83,6 +83,27 @@ Résultats (état de livraison) : backend 246 tests, 641 assertions, 0 échec ; 
 ## Déploiement
 
 Consulter [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) pour Render (backend) et Vercel (frontend), variables d'environnement, CORS, stockage, Brevo, Microsoft Entra ID, fournisseurs IA.
+
+La section 9 est le runbook actuel. L'image utilise nginx/PHP-FPM, une file database
+et un processus `artisan schedule:run`; le frontend reste deploye separement.
+La production fiable necessite un hote toujours actif: le blueprint Render est
+payant, pas une promesse de 0 MAD. Aucune integration externe n'a ete deployee ici.
+
+Pour Compose, generer `APP_KEY` dans `backend/.env`, puis lancer
+`docker compose --env-file backend/.env up --build --wait`. La base PostgreSQL
+locale et les fichiers prives sont persistants; la pile execute worker/scheduler.
+Ne jamais utiliser ses identifiants locaux en production.
+
+Pour un backend lance sans Docker, executer dans deux autres terminaux
+`php artisan queue:work database --tries=1 --timeout=900` et
+`php artisan schedule:work` depuis `backend`. Aucun worker signifie aucun
+traitement IA asynchrone. Le runtime conteneurise utilise `schedule:run` directement.
+
+Les outils independants vivent dans `scripts/`: `npm --prefix scripts ci`,
+`npm --prefix scripts test`, `node scripts/validate-schema.mjs`, puis
+`npm --prefix scripts run browser` apres installation des navigateurs Playwright.
+Sauvegardes, restauration, alertes, recette et charge 200 utilisateurs sont
+documentees dans le runbook. Voir aussi [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## Notes importantes
 

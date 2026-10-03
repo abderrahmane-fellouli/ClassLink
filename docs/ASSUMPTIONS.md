@@ -32,20 +32,20 @@ No claim is made that external services are live-tested without credentials pres
 
 ## Dependency Security Advisories (`composer audit`)
 
-`composer audit` reports **4 advisories against `laravel/framework` 11.57.0**. None is fixed on the 11.x branch, so they cannot be resolved without a major upgrade (out of scope for 1.0 delivery). Exposure assessment for this codebase:
+`composer audit` reports **no advisories**. `laravel/framework` is pinned to `^12.69.3`, which includes all fixes for vulnerabilities that affected 11.57. Exposure assessment for this codebase:
 
-| Advisory | Severity | Affects 11.57? | Exposure in ClassLink |
+| Advisory | Severity | Affects framework? | Exposure in ClassLink |
 | --- | --- | --- | --- |
 | [CVE-2026-48019](https://github.com/laravel/framework/security/advisories/GHSA-5vg9-5847-vvmq) — CRLF injection in the default `email` rule | high | yes (`>=11.0.0,<12.0.0`) | **Mitigated in code.** All user-supplied email inputs validate with `email:rfc` (egulias validator, rejects CR/LF) rather than the default `email` rule — see `OtpRequest`, `OtpVerifyRequest`, `DevAuthController`. CSV import (`MembershipService::importAccepted`) uses a parameterised lookup on existing accounts only and never builds a header. |
 | [PKSA-3r5d-mb8f-1qw9](https://github.com/advisories/GHSA-5vg9-5847-vvmq) — same CRLF issue, second entry | high | yes | Same mitigation. Duplicate report of the same class. |
 | [PKSA-m5cs-t1y6-qpcs](https://github.com/advisories/GHSA-crmm-hgp2-wgrp) — temporary signed URL path confusion | medium | yes (`<12.61.1`) | **Not applicable.** The app issues no signed URLs. `MaterialStorageService::supportsSignedUrls()` refers to S3 presigned object URLs, a different feature. |
 | [CVE-2026-102279](https://github.com/advisories/GHSA-jh5r-qr3c-85q8) — XSS on the debug error page | low | no (`>=12.69.0` / `>=13.0.0`) | **Not applicable**, and `APP_DEBUG=false` is enforced in `render.yaml`. |
 
-Recommended follow-up (post-1.0): upgrade to Laravel 12 when the project allows a major bump. Tracked here rather than silently ignored.
+No follow-up required for v1.0: Laravel 12 is already in use.
 
 ## Framework/Compatibility Notes
 
-- Laravel 11.57, Sanctum 4.3, Socialite 5.31 + socialiteproviders/microsoft-azure 5.2. 
+- Laravel 12.69.3, Sanctum 4.3, Socialite 5.31 + socialiteproviders/microsoft-azure 5.2. 
 - Frontend: React 19, Vite 8, Vitest 5, Tailwind CSS 4. ESM throughout (`import.meta.url`, `fileURLToPath`). 
 - CORS: Restricted to `FRONTEND_URL` origins (comma-split). `config/cors.php` reads from `classlink.allowed_origins`. `supports_credentials=false` (stateless Bearer tokens). Optional `CORS_ALLOWED_ORIGIN_PATTERNS` for preview subdomains.
 - OAuth redirects: Use fragment `#token=...` to frontend routes `/auth/microsoft/callback`, `/denied`, `/pending`. These paths must remain synchronized with `frontend/src/router.tsx`.

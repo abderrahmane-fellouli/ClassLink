@@ -1,0 +1,79 @@
+# Manual recovery only. Normal scheduling is the container's schedule:run process.
+# =============================================================================
+# ClassLink 1.0 — Remise à zéro quotidienne des quotas IA (F-IA-05 / RG-13)
+# -----------------------------------------------------------------------------
+# `AiService::resetDailyQuotas()` remet `used_today` à 0 pour tous les
+# fournisseurs IA. Sans cette tâche, le quota d'un enseignant est épuisé
+# définitivement dès le premier jour : `routes/console.php:24` enregistre la
+# tâche mais aucun `schedule:run` ne s'exécute en production.
+#
+# Elle est exposée par la route interne `POST /api/internal/ai-quota-reset` ET
+# par la commande artisan `schedule:run`, donc un déclenchement manuel a le même
+# effet que la tâche planifiée.
+#
+# Mêmes secrets que le résumé quotidien :
+#   CLASSLINK_API_URL  URL de base de l'API, **sans** le préfixe `/api`
+#                      ex. https://classlink-api.onrender.com
+#                      (le workflow ajoute lui-même `/api/...`)
+#   DIGEST_TOKEN
+# =============================================================================
+
+name: Reset AI quotas
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ai-quota-reset
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reset:
+    name: Réinitialiser les quotas IA
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Vérifier la présence des secrets
+        env:
+          API_URL: ${{ secrets.CLASSLINK_API_URL }}
+          TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        run: |
+          if [ -z "$API_URL" ] || [ -z "$TOKEN" ]; then
+            echo "::error::CLASSLINK_API_URL et DIGEST_TOKEN doivent etre definis dans les secrets GitHub."
+            exit 1
+          fi
+
+      - name: Appeler la route interne
+        id: reset
+        env:
+          API_URL: ${{ secrets.CLASSLINK_API_URL }}
+          TOKEN: ${{ secrets.DIGEST_TOKEN }}
+        run: |
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 120 \
+            --retry 2 \
+            --retry-delay 10 \
+            -X POST "${API_URL%/}/api/internal/ai-quota-reset" \
+            -H "X-Digest-Token: ${TOKEN}" \
+            -H "Accept: application/json")
+
+          echo "Reponse : ${response}"
+
+          reset=$(echo "$response" | jq -r '.reset // 0')
+          echo "Fournisseurs reinitialises : ${reset}"
+          echo "reset=${reset}" >> "$GITHUB_OUTPUT"
+
+      - name: Journaliser le resultat
+        env:
+          RESET: ${{ steps.reset.outputs.reset }}
+        run: |
+          {
+            echo "## Quotas IA ClassLink"
+            echo ""
+            echo "- Date : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "- Fournisseurs reinitialises : **${RESET}**"
+          } >> "$GITHUB_STEP_SUMMARY"

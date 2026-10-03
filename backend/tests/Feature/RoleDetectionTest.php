@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+
 use App\Enums\Role;
 use App\Support\RoleDetector;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -18,7 +20,7 @@ class RoleDetectionTest extends TestCase
 
     // -- T-01 : domaine etranger refuse --------------------------------------
 
-    /** @dataProvider foreignDomains */
+    #[DataProvider('foreignDomains')]
     public function test_t01_foreign_domain_is_denied(string $email): void
     {
         $this->assertSame(Role::Denied->value, RoleDetector::fromEmail($email));
@@ -38,7 +40,7 @@ class RoleDetectionTest extends TestCase
 
     // -- T-02 : 13 chiffres -> etudiant ---------------------------------------
 
-    /** @dataProvider students */
+    #[DataProvider('students')]
     public function test_t02_thirteen_digits_is_student(string $email): void
     {
         $this->assertSame(Role::Student->value, RoleDetector::fromEmail($email));
@@ -54,7 +56,7 @@ class RoleDetectionTest extends TestCase
         ];
     }
 
-    /** @dataProvider nonStudents */
+    #[DataProvider('nonStudents')]
     public function test_t02_other_digit_counts_are_not_student(string $email): void
     {
         $this->assertNotSame(Role::Student->value, RoleDetector::fromEmail($email));
@@ -71,7 +73,7 @@ class RoleDetectionTest extends TestCase
 
     // -- T-03 : format enseignant -> enseignant -------------------------------
 
-    /** @dataProvider teachers */
+    #[DataProvider('teachers')]
     public function test_t03_teacher_pattern_is_teacher(string $email): void
     {
         $this->assertSame(Role::Teacher->value, RoleDetector::fromEmail($email));
@@ -88,7 +90,7 @@ class RoleDetectionTest extends TestCase
         ];
     }
 
-    /** @dataProvider nonTeachers */
+    #[DataProvider('nonTeachers')]
     public function test_t03_other_patterns_are_not_teacher(string $email): void
     {
         $this->assertNotSame(Role::Teacher->value, RoleDetector::fromEmail($email));
@@ -108,7 +110,7 @@ class RoleDetectionTest extends TestCase
 
     // -- T-04 : format inconnu dans le bon domaine -> en attente -------------
 
-    /** @dataProvider pendings */
+    #[DataProvider('pendings')]
     public function test_t04_unknown_format_is_pending(string $email): void
     {
         $this->assertSame(Role::Pending->value, RoleDetector::fromEmail($email));

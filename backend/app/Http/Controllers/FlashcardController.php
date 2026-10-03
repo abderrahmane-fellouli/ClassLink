@@ -96,7 +96,7 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
 
     public function store(Request $request, Classroom $classroom): JsonResponse
     {
-        $this->authorize('manage', $classroom);
+        $this->authorize('modify', $classroom);
 
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -110,7 +110,7 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
             'title' => $data['title'],
             'source' => 'manual',
             'status' => 'draft',
-            'reviewed' => true,
+            // F-IA-03 : fail closed, pas de `reviewed => true` a la creation.
         ]);
 
         foreach ($data['cards'] as $i => $card) {
@@ -120,19 +120,88 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
         return response()->json(new FlashcardDeckResource($deck->load('cards')), 201);
     }
 
-    /** RG-11 appliqué aux decks IA : publication après relecture. */
-    public function publish(FlashcardDeck $deck): FlashcardDeckResource
+    /**
+     * Modification du titre d'un deck. F-QUI-08.
+     *
+     * `update` dans `FlashcardDeckPolicy` impose déjà propriétaire + classe non
+     * archivée : un deck publié n'est donc pas modifiable par un élève.
+     *
+     * F-IA-03 : une vraie édition du contenu vaut relecture — même sémantique
+     * que `QuestionController::update`.
+     */
+    public function update(Request $request, FlashcardDeck $deck): FlashcardDeckResource
     {
         $this->authorize('update', $deck);
 
-        if ($deck->source === 'ai' && ! $deck->reviewed) {
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+        ]);
+
+        $deck->update(['title' => $data['title']]);
+        $deck->markReviewed();
+
+        return new FlashcardDeckResource($deck->fresh('cards'));
+    }
+
+    /**
+     * Modification du recto/verso d'une carte. F-QUI-08.
+     */
+    public function updateCard(Request $request, FlashcardDeck $deck, Flashcard $card): JsonResponse
+    {
+        $this->authorize('update', $deck);
+
+        // La carte doit appartenir au deck de l'URL : sinon on pourrait
+        // modifier une carte d'un autre deck (donc d'une autre classe).
+        abort_unless($card->deck_id === $deck->id, 404);
+
+        $data = $request->validate([
+            'front' => ['required', 'string', 'max:2000'],
+            'back' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $card->update($data);
+
+        // F-IA-03 : le contenu ayant changé, la relecture suit.
+        $deck->markReviewed();
+
+        return response()->json([
+            'data' => [
+                'id' => $card->id,
+                'front' => $card->front,
+                'back' => $card->back,
+                'position' => $card->position,
+            ],
+        ]);
+    }
+
+    /** Suppression d'une carte. F-QUI-08. */
+    public function destroyCard(FlashcardDeck $deck, Flashcard $card): Response
+    {
+        $this->authorize('update', $deck);
+
+        abort_unless($card->deck_id === $deck->id, 404);
+
+        $card->delete();
+        $deck->markReviewed();
+
+        return response()->noContent();
+    }
+
+    /** RG-11 appliqué aux decks IA : publication après relecture. */
+    public function publish(FlashcardDeck $deck): JsonResponse|FlashcardDeckResource
+    {
+        $this->authorize('update', $deck);
+
+        if ($deck->source === 'ai' && (! $deck->reviewed || $deck->reviewed_at === null)) {
             return response()->json([
                 'message' => 'Relisez ce deck généré par l\'IA avant de le publier.',
                 'requires_review' => true,
             ], 409);
         }
 
-        $deck->update(['status' => 'published', 'reviewed' => true]);
+        // F-IA-03 : publier ne pose pas `reviewed` (publier ne vaut pas
+        // relecture). Le verrou IA doit avoir été levé avant.
+        $deck->update(['status' => 'published']);
 
         return new FlashcardDeckResource($deck->fresh('cards'));
     }
@@ -142,7 +211,7 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
     {
         $this->authorize('update', $deck);
 
-        $deck->update(['reviewed' => true]);
+        $deck->markReviewed();
 
         return new FlashcardDeckResource($deck->fresh('cards'));
     }

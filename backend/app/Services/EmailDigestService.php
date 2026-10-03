@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\MembershipStatus;
 use App\Models\Announcement;
+use App\Models\AppNotification;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -27,17 +28,17 @@ class EmailDigestService
         $since = Carbon::now()->subDay();
         $sent = 0;
 
-        $students = User::where('role', 'student')
+        $students = User::whereIn('role', ['student', 'teacher', 'admin'])
             ->where('is_active', true)
             ->with(['memberships' => fn ($q) => $q->where('status', MembershipStatus::Accepted->value)])
             ->get();
 
         foreach ($students as $student) {
-            if ($student->memberships->isEmpty()) {
+            $preferences = $student->notification_preferences ?? [];
+            if (($preferences['email_digest'] ?? true) === false) {
                 continue;
             }
-
-            $classIds = $student->memberships->pluck('classroom_id');
+            $classIds = $student->isStudent() ? $student->memberships->pluck('classroom_id') : collect();
 
             $announcements = Announcement::whereIn('classroom_id', $classIds)
                 ->where('created_at', '>=', $since)
@@ -45,13 +46,30 @@ class EmailDigestService
                 ->orderByDesc('pinned')
                 ->orderByDesc('created_at')
                 ->get();
+            if (($preferences['types'][NotificationService::ANNOUNCEMENT_PUBLISHED] ?? true) === false) {
+                $announcements = collect();
+            }
 
-            if ($announcements->isEmpty()) {
+            $lines = $announcements->map(fn (Announcement $a) => "- [{$a->classroom?->name}] {$a->title}");
+            $notifications = AppNotification::where('user_id', $student->id)->where('created_at', '>=', $since)->get();
+            foreach ($notifications as $notification) {
+                if (($preferences['types'][$notification->type] ?? true) === false
+                    || ($student->isStudent() && $notification->type === NotificationService::ANNOUNCEMENT_PUBLISHED)) {
+                    continue;
+                }
+                $lines->push('- '.$notification->type.': '.($notification->payload['title'] ?? $notification->payload['classroom_name'] ?? 'ClassLink'));
+            }
+            if ($lines->isEmpty()) {
                 continue;
             }
 
-            $this->send($student, $announcements);
-            $sent++;
+            // Reserve before transport: ambiguous mail failures are not retried today.
+            $claimed = User::whereKey($student->id)->where(function ($query) {
+                $query->whereNull('last_digest_at')->orWhere('last_digest_at', '<', now()->startOfDay());
+            })->update(['last_digest_at' => now()]);
+            if ($claimed && $this->send($student, $lines)) {
+                $sent++;
+            }
         }
 
         Log::info('Résumé quotidien envoyé', ['emails' => $sent]);
@@ -60,13 +78,11 @@ class EmailDigestService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, Announcement>  $announcements
+     * @param  \Illuminate\Support\Collection<int, string>  $lines
      */
-    private function send(User $student, $announcements): void
+    private function send(User $student, $lines): bool
     {
-        $lines = $announcements->map(
-            fn (Announcement $a) => "- [{$a->classroom?->name}] {$a->title}"
-        )->implode("\n");
+        $lines = $lines->implode("\n");
 
         $body = $student->locale === 'en'
             ? "New announcements in your classes:\n\n{$lines}"
@@ -76,11 +92,13 @@ class EmailDigestService
             Mail::raw($body, function ($message) use ($student) {
                 $message->to($student->email)->subject('ClassLink — résumé du jour');
             });
+            return true;
         } catch (\Throwable $e) {
             Log::warning('Envoi du résumé impossible', [
                 'user_id' => $student->id,
                 'error' => $e->getMessage(),
             ]);
+            return false;
         }
     }
 }

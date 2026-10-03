@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { useAuth } from '../context/AuthContext'
-import { errorMessage, firstFieldError } from '../lib/api'
+import { ApiError, errorMessage } from '../lib/api'
 import {
   assignments,
   classrooms,
@@ -19,6 +19,7 @@ import type {
   ApiAssignment,
   ApiAttemptResult,
   ApiAttemptStart,
+  ApiActiveAttempt,
   ApiFlashcardDeck,
   ApiMaterial,
   ApiStudentQuiz,
@@ -29,6 +30,7 @@ import {
   AsyncBoundary,
   Badge,
   Btn,
+  ConfirmButton,
   Card,
   EmptyState,
   Icons,
@@ -49,9 +51,9 @@ export function StudentDashboard() {
   const classes = useAsync(signal => classrooms.list({ signal }), [])
   const progress = useAsync(signal => progression.me({ signal }), [])
 
-  const active = classes.data?.data.filter(c => c.status === 'active') ?? []
+  const active = classes.data?.data.filter(c => c.status === 'active' && c.membership?.status === 'accepted') ?? []
   const totals = progress.data?.totals
-  const recent = useMemo(() => (progress.data?.history ?? []).slice(0, 5), [progress.data])
+  const recent = useMemo(() => [...(progress.data?.history ?? [])].reverse().slice(0, 5), [progress.data])
 
   return (
     <div>
@@ -121,12 +123,13 @@ export function StudentDashboard() {
 
       {recent.length > 0 && (
         <>
+          {progress.data?.trend.delta_percentage_points != null && <Alert message={t('progress.trend', { delta: progress.data.trend.delta_percentage_points })}/>}
           <h2 className="font-display text-lg font-semibold mt-8 mb-4">{t('student.upcoming')}</h2>
           <Card className="divide-y divide-[var(--border)]">
             {recent.map(item => (
               <Link
                 key={item.attempt_id}
-                to={`/app/classes/${item.classroom_id ?? ''}/quizzes/${item.quiz_id}`}
+                to={`/app/classes/${item.classroom_id ?? ''}/quizzes/${item.quiz_id}?attemptId=${item.attempt_id}`}
                 className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--muted)]"
               >
                 <div className="min-w-0">
@@ -153,6 +156,7 @@ export function StudentDashboard() {
 export function MyClassesScreen() {
   const { t } = useI18n()
   const classes = useAsync(signal => classrooms.list({ signal }), [])
+  const active = classes.data?.data.filter(item => item.status === 'active' && item.membership?.status === 'accepted') ?? []
 
   return (
     <div>
@@ -170,11 +174,11 @@ export function MyClassesScreen() {
         error={classes.error}
         onRetry={classes.reload}
         errorMessage={t('common.error')}
-        isEmpty={(classes.data?.data.length ?? 0) === 0}
+        isEmpty={active.length === 0}
         empty={<EmptyState message={t('student.noClasses')}/>}
       >
         <div className="grid sm:grid-cols-2 gap-4">
-          {(classes.data?.data ?? []).map(classroom => (
+          {active.map(classroom => (
             <Link key={classroom.id} to={`/app/classes/${classroom.id}`}>
               <Card className="p-5 h-full hover:border-[var(--primary)]/40 transition-colors">
                 <div className="flex items-start justify-between gap-2 mb-1">
@@ -594,6 +598,7 @@ export function AssignmentDetailScreen() {
                 <span className="text-sm font-medium">{file ? file.name : t('assignment.submit.choose')}</span>
                 <input
                   type="file"
+                  aria-label={t('assignment.submit.choose')}
                   className="hidden"
                   onChange={event => {
                     setFile(event.target.files?.[0] ?? null)
@@ -647,7 +652,7 @@ function FlashcardList({
                   {t('flashcards.cardsCount', { count: deck.cards_count })}
                 </p>
               </div>
-              {deck.source === 'ai' && <Badge label="IA" color="purple"/>}
+              {deck.source === 'ai' && <Badge label={t('common.ai')} color="purple"/>}
               <span className="text-[var(--muted-foreground)] shrink-0"><Icons.ChevRight/></span>
             </Card>
           </Link>
@@ -661,6 +666,9 @@ export function FlashcardStudyScreen() {
   const { deckId: rawId } = useParams()
   const deckId = Number(rawId)
   const { t } = useI18n()
+  const { role } = useAuth()
+  const manager = role === 'teacher' || role === 'admin'
+  const lifecycle = useAction()
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -672,6 +680,67 @@ export function FlashcardStudyScreen() {
   // doit rester optionnel, sinon l'écran levait une TypeError et la requête
   // n'était même pas émise.
   const card = cards[index]
+
+  /*
+   * F-QUI-08 — édition du contenu.
+   *
+   * Un deck généré par IA ne pouvait être corrigé que par suppression puis
+   * recréation : dès qu'une carte était fausse, le contenu devenait
+   * inexploitable. Corriger une carte vaut relecture (même règle que
+   * `QuestionController::update`), ce qui redonne la main à l'enseignant.
+   */
+  const [editing, setEditing] = useState(false)
+  const [draftFront, setDraftFront] = useState('')
+  const [draftBack, setDraftBack] = useState('')
+  const edit = useAction()
+
+  function startEdit() {
+    setDraftFront(card?.front ?? '')
+    setDraftBack(card?.back ?? '')
+    setEditing(true)
+  }
+
+  async function saveCard() {
+    if (!card || !draftFront.trim() || !draftBack.trim()) return
+    await edit.run(async () => {
+      const saved = await flashcards.updateCard(deckId, card.id, {
+        front: draftFront.trim(),
+        back: draftBack.trim(),
+      })
+      deck.setData(previous =>
+        previous
+          ? {
+              ...previous,
+              // Une vraie édition vaut relecture : on reflète l'état serveur.
+              reviewed: true,
+              cards: previous.cards?.map(c =>
+                c.id === card.id
+                  ? { ...c, front: saved.data.front, back: saved.data.back }
+                  : c,
+              ),
+            }
+          : previous,
+      )
+      setEditing(false)
+    })
+  }
+
+  async function removeCard() {
+    if (!card) return
+    await edit.run(async () => {
+      await flashcards.deleteCard(deckId, card.id)
+      deck.setData(previous =>
+        previous
+          ? {
+              ...previous,
+              cards: previous.cards?.filter(c => c.id !== card.id),
+            }
+          : previous,
+      )
+      setIndex(value => Math.max(0, value - 1))
+      setEditing(false)
+    })
+  }
 
   // Un changement de deck remet le parcours à zéro.
   useEffect(() => {
@@ -738,6 +807,57 @@ export function FlashcardStudyScreen() {
             {!flipped && <span className="text-xs text-[var(--muted-foreground)]">{t('flashcards.flip')}</span>}
           </div>
 
+          {manager && editing && card ? (
+            <Card className="mt-4 p-4 space-y-3">
+              <div>
+                <label htmlFor="card-front" className="block text-xs font-medium mb-1">
+                  {t('flashcards.front')}
+                </label>
+                <textarea
+                  id="card-front"
+                  value={draftFront}
+                  onChange={e => setDraftFront(e.target.value)}
+                  rows={2}
+                  maxLength={2000}
+                  className="w-full rounded-[var(--radius)] border border-[var(--border)] p-2 text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="card-back" className="block text-xs font-medium mb-1">
+                  {t('flashcards.back')}
+                </label>
+                <textarea
+                  id="card-back"
+                  value={draftBack}
+                  onChange={e => setDraftBack(e.target.value)}
+                  rows={3}
+                  maxLength={2000}
+                  className="w-full rounded-[var(--radius)] border border-[var(--border)] p-2 text-sm"
+                />
+              </div>
+              {edit.error && <Alert type="error" message={errorMessage(edit.error, t('error.unknown'))}/>}
+              <div className="flex items-center gap-2">
+                <Btn
+                  size="sm"
+                  disabled={edit.pending || !draftFront.trim() || !draftBack.trim()}
+                  onClick={() => void saveCard()}
+                >
+                  {t('common.save')}
+                </Btn>
+                <Btn size="sm" variant="ghost" disabled={edit.pending} onClick={() => setEditing(false)}>
+                  {t('common.cancel')}
+                </Btn>
+                <ConfirmButton
+                  size="sm"
+                  variant="danger"
+                  disabled={edit.pending}
+                  onClick={() => void removeCard()}
+                >
+                  {t('common.delete')}
+                </ConfirmButton>
+              </div>
+            </Card>
+          ) : (
           <button
             onClick={() => setFlipped(v => !v)}
             className="w-full min-h-56 rounded-[var(--radius)] border border-[var(--border)] bg-white p-8 flex flex-col items-center justify-center gap-3 text-center shadow-sm hover:border-[var(--primary)] transition-colors"
@@ -751,6 +871,15 @@ export function FlashcardStudyScreen() {
               </>
             )}
           </button>
+          )}
+
+          {manager && !editing && (
+            <div className="flex justify-center mt-2">
+              <Btn size="sm" variant="secondary" onClick={startEdit} disabled={!card}>
+                {t('flashcards.editCard')}
+              </Btn>
+            </div>
+          )}
 
           {card?.known !== null && card?.known !== undefined && (
             <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
@@ -761,9 +890,14 @@ export function FlashcardStudyScreen() {
           <ProgressBar value={cards.length ? ((index + 1) / cards.length) * 100 : 0}/>
 
           <div className="flex items-center justify-center gap-2 mt-4">
+            {manager && deck.data?.status === 'draft' && <ConfirmButton disabled={lifecycle.pending || index !== cards.length - 1 || !flipped} onClick={() => void lifecycle.run(async () => { await flashcards.markReviewed(deckId); deck.reload() })}>{t('aiQuiz.review')}</ConfirmButton>}
+            {manager && deck.data?.status === 'draft' && <ConfirmButton disabled={lifecycle.pending || (deck.data.source === 'ai' && !deck.data.reviewed)} onClick={() => void lifecycle.run(async () => { await flashcards.publish(deckId); deck.reload() })}>{t('createQuiz.publish')}</ConfirmButton>}
+            {lifecycle.error && <Alert type="error" message={errorMessage(lifecycle.error, t('error.unknown'))}/>}
+            {!manager && <>
             <Btn variant="ghost" onClick={() => mark(false)} disabled={saving}>
               {t('flashcards.again')}
             </Btn>
+            </>}
             <Btn onClick={() => mark(true)} disabled={saving}>
               {t('flashcards.known')}
             </Btn>
@@ -871,6 +1005,8 @@ export function QuizAttemptScreen() {
   const quizId = Number(id)
   const { t } = useI18n()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const storageKey = `classlink.attempt.${user?.id}.${quizId}`
 
   const [attempt, setAttempt] = useState<ApiAttemptStart | null>(null)
   const [result, setResult] = useState<ApiAttemptResult | null>(null)
@@ -879,21 +1015,79 @@ export function QuizAttemptScreen() {
   const [remaining, setRemaining] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const start = useAction()
+  const saveAnswers = useAction()
+  const [search] = useSearchParams()
+  const resultId = Number(search.get('attemptId'))
+  const historical = useAsync(signal => resultId ? quizzes.attempt(resultId, { signal }) : Promise.resolve(null), [resultId])
+  useEffect(() => { if (historical.data?.submitted_at) setResult(historical.data) }, [historical.data])
+  const answersRef = useRef(answers)
+  answersRef.current = answers
+  const submitting = useRef(false)
+  const [submitPending, setSubmitPending] = useState(false)
+  const [savedAttempt] = useState<{ attempt: ApiAttemptStart; answers: Record<number, number[]>; savedAt: number } | null>(() => {
+    try { return JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') } catch { return null }
+  })
+
+  /*
+   * F-QUI-04 — reprise pilotée par le serveur.
+   *
+   * `sessionStorage` ne survit ni au changement d'appareil, ni à la fermeture
+   * du navigateur : une tentative commencée était donc perdue et son quota
+   * `max_attempts` consommé pour rien. Le serveur est l'unique arbitre :
+   * `GET /quizzes/{id}/attempts/active` renvoie la tentative en cours avec
+   * l'ordre FIGÉ et les réponses déjà enregistrées.
+   */
+  const remote = useAsync(signal => quizzes.activeAttempt(quizId, { signal }), [quizId])
+  const [checked, setChecked] = useState(false)
+  useEffect(() => { if (!remote.loading) setChecked(true) }, [remote.loading])
+
+  useEffect(() => {
+    if (!attempt || result) return
+    try { sessionStorage.setItem(storageKey, JSON.stringify({ attempt: { ...attempt, remaining_seconds: remaining }, answers, savedAt: Date.now() })) } catch { /* Storage may be unavailable. */ }
+  }, [attempt, answers, remaining, result, storageKey])
+
+  /** Reprise : le serveur renvoie l'état complet, on ne recalcule rien. */
+  async function resume(resumable: ApiActiveAttempt) {
+    await start.run(async () => {
+      const merged: Record<number, number[]> = {}
+      // Les réponses du serveur priment : une réponse saisie sur un autre
+      // appareil mais pas encore synchronisée ne doit pas écraser la base.
+      for (const [questionId, entry] of Object.entries(resumable.answers ?? {})) {
+        merged[Number(questionId)] = entry.option_ids ?? []
+      }
+      setAnswers(merged)
+      setRemaining(resumable.remaining_seconds)
+      setAttempt(resumable)
+      setIndex(0)
+    })
+  }
+
+  /** Reprise depuis le cache local quand le serveur est injoignable. */
+  async function resumeFromCache() {
+    if (!savedAttempt) return
+    await start.run(async () => {
+      const current = await quizzes.attempt(savedAttempt.attempt.attempt_id)
+      if (current.submitted_at) { setResult(current); try { sessionStorage.removeItem(storageKey) } catch { /* Storage may be unavailable. */ } return }
+      const next = { ...savedAttempt.attempt, remaining_seconds: Math.max(0, savedAttempt.attempt.remaining_seconds - Math.floor((Date.now() - savedAttempt.savedAt) / 1000)) }
+      setAnswers(savedAttempt.answers)
+      setRemaining(next.remaining_seconds)
+      setAttempt(next)
+    })
+  }
 
   /* Minuteur : le serveur reste l'arbitre, l'UI ne fait qu'afficher. */
   useEffect(() => {
     if (!attempt || attempt.time_limit_min === null) return
 
+    const deadline = Date.now() + attempt.remaining_seconds * 1000
     setRemaining(attempt.remaining_seconds)
     const timer = window.setInterval(() => {
-      setRemaining(value => {
-        if (value <= 1) {
+      const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+      setRemaining(seconds)
+        if (seconds === 0) {
           window.clearInterval(timer)
-          void submit(true)
-          return 0
+           void submit()
         }
-        return value - 1
-      })
     }, 1000)
 
     return () => window.clearInterval(timer)
@@ -907,26 +1101,42 @@ export function QuizAttemptScreen() {
       setAttempt(started as ApiAttemptStart)
       setIndex(0)
       setAnswers({})
+      setRemaining(started.remaining_seconds)
     } else {
       setError(errorMessage(start.error, t('error.maxAttempts')))
     }
   }
 
-  async function submit(auto = false) {
-    if (!attempt) return
+  async function submit() {
+    if (!attempt || submitting.current || result) return
+    submitting.current = true
+    setSubmitPending(true)
     setError(null)
     const payload = {
-      answers: Object.entries(answers).map(([questionId, selected]) => ({
+      answers: Object.entries(answersRef.current).map(([questionId, selected]) => ({
         question_id: Number(questionId),
-        selected_option_ids: selected,
+        option_ids: selected,
       })),
     }
     try {
       const outcome = await quizzes.submitAttempt(attempt.attempt_id, payload)
       setResult(outcome)
+      setAttempt(null)
+      try { sessionStorage.removeItem(storageKey) } catch { /* Storage may be unavailable. */ }
     } catch (cause) {
-      if (!auto) setError(errorMessage(cause, t('error.unknown')))
+      setError(errorMessage(cause, t('error.unknown')))
+    } finally {
+      submitting.current = false
+      setSubmitPending(false)
     }
+  }
+
+  async function saveCurrent(next = false) {
+    if (!attempt) return
+    await saveAnswers.run(async () => {
+      await quizzes.saveAnswers(attempt.attempt_id, { answers: Object.entries(answersRef.current).map(([id, selected]) => ({ question_id: Number(id), option_ids: selected })) })
+      if (next) setIndex(value => value + 1)
+    })
   }
 
   function toggle(questionId: number, optionId: number, multiple: boolean) {
@@ -997,17 +1207,37 @@ export function QuizAttemptScreen() {
   }
 
   if (!attempt) {
+    const resumable = remote.data?.attempt ?? null
     return (
       <div className="max-w-lg mx-auto">
         <PageHeader title={t('quiz.start')} back={() => navigate(-1)}/>
         {error && <div className="mb-4"><Alert message={error} type="error"/></div>}
+        {historical.error && <Alert type="error" message={t('common.error')}/>}
+        {remote.error && <Alert type="error" message={errorMessage(remote.error, t('error.unknown'))}/>}
         <Card className="p-6 text-center">
           <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: 'var(--secondary)', color: 'var(--primary)' }}>
             <Icons.Quiz/>
           </div>
-          <Btn onClick={() => void begin()} disabled={start.pending}>
-            {start.pending ? t('quiz.starting') : t('quiz.start')}
-          </Btn>
+          {/*
+            La reprise serveur est prioritaire : elle seule survit au
+            changement d'appareil et à la fermeture du navigateur.
+          */}
+          {resumable && (
+            <>
+              <p className="text-sm text-[var(--muted-foreground)] mb-4">{t('quiz.resumeServer')}</p>
+              <Btn onClick={() => void resume(resumable)} disabled={start.pending}>{t('quiz.resume')}</Btn>
+            </>
+          )}
+          {!resumable && savedAttempt && (
+            <Btn onClick={() => void resumeFromCache()} disabled={start.pending}>{t('quiz.resume')}</Btn>
+          )}
+          {start.error && <Alert type="error" message={errorMessage(start.error, t('error.unknown'))}/>}
+          {!checked && <p className="text-sm text-[var(--muted-foreground)]">{t('quiz.checking')}</p>}
+          {checked && (
+            <Btn onClick={() => void begin()} disabled={start.pending || Boolean(resumable) || Boolean(resultId)}>
+              {start.pending ? t('quiz.starting') : t('quiz.start')}
+            </Btn>
+          )}
         </Card>
       </div>
     )
@@ -1020,6 +1250,7 @@ export function QuizAttemptScreen() {
   return (
     <div className="max-w-2xl mx-auto">
       {error && <div className="mb-4"><Alert message={error} type="error"/></div>}
+      {saveAnswers.error && <Alert type="error" message={errorMessage(saveAnswers.error, t('error.unknown'))}/>}
 
       <div className="flex items-center justify-between mb-2 text-xs text-[var(--muted-foreground)]">
         <span>{t('quiz.questionOf', { current: index + 1, total: attempt.questions.length })}</span>
@@ -1048,6 +1279,8 @@ export function QuizAttemptScreen() {
               <button
                 key={option.id}
                 onClick={() => toggle(question.id, option.id, multiple)}
+                disabled={submitPending || (attempt.time_limit_min !== null && remaining === 0)}
+                aria-pressed={selected}
                 className={`w-full text-left px-4 py-3 rounded-lg border text-sm transition-colors ${
                   selected
                     ? 'border-[var(--primary)] bg-[var(--secondary)] text-[var(--primary)]'
@@ -1062,13 +1295,14 @@ export function QuizAttemptScreen() {
       </Card>
 
       <div className="flex items-center justify-between mt-4">
+        <Btn variant="secondary" disabled={saveAnswers.pending || submitPending} onClick={() => void saveCurrent()}>{t('quiz.saveAnswers')}</Btn>
         <Btn variant="ghost" onClick={() => setIndex(value => Math.max(0, value - 1))} disabled={index === 0}>
           {t('quiz.previous')}
         </Btn>
         {index < attempt.questions.length - 1 ? (
-          <Btn onClick={() => setIndex(value => value + 1)}>{t('quiz.next')}</Btn>
+          <Btn disabled={saveAnswers.pending || submitPending} onClick={() => void saveCurrent(true)}>{t('quiz.next')}</Btn>
         ) : (
-          <Btn variant="success" onClick={() => void submit()}>{t('quiz.submit')}</Btn>
+          <ConfirmButton variant="success" disabled={submitPending} onClick={() => void submit()}>{t('quiz.submit')}</ConfirmButton>
         )}
       </div>
     </div>
@@ -1081,7 +1315,7 @@ export function DeadlinesScreen() {
   const { t } = useI18n()
   const deadlines = useAsync(signal => progression.deadlines({ signal }), [])
 
-  const items = deadlines.data?.data ?? []
+  const items = [...(deadlines.data?.data ?? [])].sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))
   const upcoming = items.filter(item => !item.is_overdue)
   const overdue = items.filter(item => item.is_overdue)
 
@@ -1089,7 +1323,7 @@ export function DeadlinesScreen() {
     <div>
       <PageHeader title={t('deadlines.title')} subtitle={t('deadlines.subtitle')}/>
 
-      {deadlines.error && <Alert message={t('common.error')} type="error"/>}
+      {deadlines.error && <><Alert message={t('common.error')} type="error"/><Btn onClick={deadlines.reload}>{t('common.retry')}</Btn></>}
 
       {overdue.length > 0 && (
         <>
@@ -1261,12 +1495,13 @@ export function PartnersScreen() {
           <div className="flex gap-2">
             <input
               value={newSkill}
+              aria-label={t('partners.skillsAdd')}
               onChange={event => setNewSkill(event.target.value)}
               onKeyDown={event => { if (event.key === 'Enter') void addSkill() }}
               placeholder={t('partners.skillsAdd')}
               className="flex-1 px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg outline-none focus:ring-2 focus:ring-[var(--primary)]"
             />
-            <Btn size="sm" onClick={() => void addSkill()}><Icons.Plus/></Btn>
+            <Btn size="sm" aria-label={t('partners.skillsAdd')} onClick={() => void addSkill()}><Icons.Plus/></Btn>
           </div>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {SKILL_SUGGESTIONS.filter(skill => !(profile.data?.skills ?? []).includes(skill)).map(skill => (
@@ -1422,9 +1657,6 @@ export function JoinClassScreen() {
       setSentCode(requested)
       setCode('')
       mine.reload()
-    } else {
-      const message = firstFieldError(submit.error, 'code', t('error.joinDisabled'))
-      setError(message)
     }
   }
 
@@ -1436,7 +1668,7 @@ export function JoinClassScreen() {
 
       {sentCode ? (
         <Card className="p-6 text-center mb-5">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: 'rgba(232,130,12,0.12)', color: 'var(--accent)' }}>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3" style={{ background: 'var(--secondary)', color: 'var(--accent)' }}>
             <Icons.Clock/>
           </div>
           <h2 className="font-semibold mb-1">{t('join.pending.title')}</h2>
@@ -1445,9 +1677,10 @@ export function JoinClassScreen() {
         </Card>
       ) : (
         <Card className="p-5 mb-5">
-          {error && <div className="mb-4"><Alert message={error} type="error"/></div>}
-          <label className="text-sm font-medium block mb-1.5">{t('join.codeLabel')}</label>
+          {(error || submit.error) && <div className="mb-4"><Alert message={error ?? (submit.error instanceof ApiError && submit.error.context?.retry_after_hours ? t('error.cooldown') : errorMessage(submit.error, t('error.joinDisabled')))} type="error"/></div>}
+          <label htmlFor="join-code" className="text-sm font-medium block mb-1.5">{t('join.codeLabel')}</label>
           <input
+            id="join-code"
             value={code}
             onChange={event => setCode(event.target.value.toUpperCase())}
             placeholder={t('join.codePlaceholder')}

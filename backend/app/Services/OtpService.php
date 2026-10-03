@@ -69,10 +69,7 @@ class OtpService
         } catch (\Throwable $e) {
             // En local (MAIL_MAILER=log) ou si le SMTP est indisponible, le
             // code est journalisé pour permettre la démonstration.
-            Log::info('OTP email non envoyé, code pour démonstration', [
-                'email' => $email,
-                'code' => $code,
-            ]);
+            Log::warning('OTP email delivery failed');
         }
     }
 
@@ -152,6 +149,9 @@ class OtpService
     private function displayNameFromEmail(string $email): string
     {
         $local = strtok($email, '@');
+        if (preg_match('/^\d{13}$/', (string) $local)) {
+            return 'Student';
+        }
         $name = str_replace(['.', '-', '_'], ' ', (string) $local);
 
         return trim(mb_convert_case($name, MB_CASE_TITLE, 'UTF-8')) ?: $email;

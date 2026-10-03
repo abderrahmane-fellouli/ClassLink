@@ -98,6 +98,7 @@ class MembershipService
     public function accept(User $teacher, Membership $membership): Membership
     {
         $this->assertOwner($teacher, $membership);
+        $this->assertPending($membership, 'accepter');
 
         $membership->update([
             'status' => MembershipStatus::Accepted->value,
@@ -123,6 +124,7 @@ class MembershipService
     public function reject(User $teacher, Membership $membership): Membership
     {
         $this->assertOwner($teacher, $membership);
+        $this->assertPending($membership, 'rejeter');
 
         $membership->update([
             'status' => MembershipStatus::Rejected->value,
@@ -204,22 +206,33 @@ class MembershipService
      * F-REQ-09 (Could) — import CSV de la liste officielle, approbation
      * automatique. Le rôle est ici décidé par l'enseignant : RG-04.
      */
-    public function importAccepted(User $teacher, Classroom $classroom, array $rows): int
+    public function importAccepted(User $teacher, Classroom $classroom, array $rows): array
     {
         $this->assertClassOwner($teacher, $classroom);
 
-        return DB::transaction(function () use ($classroom, $rows) {
+        return DB::transaction(function () use ($teacher, $classroom, $rows) {
             $count = 0;
+            $accepted = [];
+            $errors = [];
+            $seen = [];
 
-            foreach ($rows as $row) {
+            foreach ($rows as $index => $row) {
+                $number = $row['_row'] ?? $index + 2;
                 $email = strtolower(trim((string) ($row['email'] ?? '')));
-                if ($email === '') {
+                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $errors[] = ['row' => $number, 'reason' => 'invalid_email'];
                     continue;
                 }
+                if (isset($seen[$email])) {
+                    $errors[] = ['row' => $number, 'reason' => 'duplicate_email'];
+                    continue;
+                }
+                $seen[$email] = true;
 
                 $student = User::where('email', $email)->first();
 
-                if (! $student || ! $student->isStudent()) {
+                if (! $student || ! $student->isStudent() || ! $student->is_active) {
+                    $errors[] = ['row' => $number, 'reason' => 'active_student_not_found'];
                     continue;
                 }
 
@@ -234,9 +247,11 @@ class MembershipService
                 );
 
                 $count++;
+                $accepted[] = ['row' => $number, 'student_id' => $student->id, 'display_name' => $student->display_name];
             }
 
-            return $count;
+            AuditLog::record($teacher, 'membership.import', ['classroom_id' => $classroom->id, 'imported' => $count]);
+            return ['imported' => $count, 'accepted' => $accepted, 'errors' => $errors];
         });
     }
 
@@ -247,12 +262,41 @@ class MembershipService
         if (! $membership->classroom->isOwnedBy($teacher)) {
             throw new BusinessRuleException('Action non autorisée.', 403);
         }
+        $this->assertClassOwner($teacher, $membership->classroom);
+    }
+
+    /**
+     * RG-06 / Figure 4 — une décision ne porte que sur une demande *en attente*.
+     *
+     * Sans cette garde, `accept`/`reject` étaient réversibles : un enseignant
+     * pouvait « rejeter » un étudiant déjà accepté — c'est-à-dire le retirer
+     * par le mauvais chemin, avec la notification `MEMBERSHIP_REJECTED` et le
+     * délai de 24 h au lieu de `MEMBERSHIP_REMOVED` — ou ré-accepter un étudiant
+     * retiré. Chaque décision émettait aussi une seconde notification et une
+     * seconde ligne d'audit pour un état déjà décidé.
+     *
+     * Le retrait reste le seul moyen de rompre une adhésion : `remove()`.
+     */
+    private function assertPending(Membership $membership, string $action): void
+    {
+        if ($membership->isPending()) {
+            return;
+        }
+
+        throw new BusinessRuleException(
+            sprintf('Seule une demande en attente peut être %s.', $action),
+            409,
+            ['status' => $membership->status]
+        );
     }
 
     private function assertClassOwner(User $teacher, Classroom $classroom): void
     {
         if (! $classroom->isOwnedBy($teacher)) {
             throw new BusinessRuleException('Action non autorisée.', 403);
+        }
+        if ($classroom->isReadOnly()) {
+            throw new BusinessRuleException('Archived classes are read-only.', 409);
         }
     }
 

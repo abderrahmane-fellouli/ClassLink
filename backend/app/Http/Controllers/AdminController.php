@@ -65,6 +65,7 @@ class AdminController extends Controller
      */
     public function updateUser(Request $request, User $user): JsonResponse
     {
+        $this->authorize('update', $user);
         $data = $request->validate([
             'role' => ['sometimes', 'required', 'string', 'in:'.implode(',', Role::assignable())],
             'is_active' => ['sometimes', 'boolean'],
@@ -131,6 +132,7 @@ class AdminController extends Controller
     /** F-ADM-03 — transfert de propriété vers un enseignant. */
     public function transferClass(Request $request, Classroom $classroom): JsonResponse
     {
+        $this->authorize('transfer', $classroom);
         $data = $request->validate([
             'teacher_id' => ['required', 'integer', 'exists:users,id'],
         ], [], ['teacher_id' => 'nouvel enseignant']);
@@ -158,6 +160,7 @@ class AdminController extends Controller
     /** F-ADM-03 — archivage par l'administrateur. */
     public function archiveClass(Request $request, Classroom $classroom): JsonResponse
     {
+        $this->authorize('archive', $classroom);
         $classroom->update([
             'status' => ClassStatus::Archived->value,
             'archived_at' => now(),
@@ -231,6 +234,11 @@ class AdminController extends Controller
     /** F-ADM-05 — journal d'audit, filtrable. */
     public function auditLogs(Request $request): JsonResponse
     {
+        $request->validate([
+            'from' => ['sometimes', 'date'],
+            'to' => ['sometimes', 'date', 'after_or_equal:from'],
+            'user_id' => ['sometimes', 'integer'],
+        ]);
         $query = \App\Models\AuditLog::with('user:id,display_name,email');
 
         if ($action = $request->string('action')->toString()) {

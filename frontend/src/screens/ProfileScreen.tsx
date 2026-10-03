@@ -6,7 +6,7 @@ import { notifications, profile } from '../lib/endpoints'
 import { useAction, useAsync } from '../lib/useAsync'
 import { describeNotification } from '../components/AppShell'
 import type { Locale } from '../lib/types'
-import { Alert, Avatar, Btn, Card, Input, PageHeader, Tabs } from '../components/UI'
+import { Alert, AsyncBoundary, Avatar, Btn, ConfirmButton, Card, EmptyState, Input, PageHeader, Tabs, Toggle } from '../components/UI'
 
 export function ProfileScreen() {
   const { user, updateProfile, signOut } = useAuth()
@@ -18,6 +18,8 @@ export function ProfileScreen() {
   const notifs = useAsync(signal => notifications.list({ signal }), [])
   const saveProfile = useAction()
   const revokeSessions = useAction()
+  const prefs = useAsync(signal => notifications.preferences({ signal, locale }), [locale])
+  const savePrefs = useAction()
 
   useEffect(() => {
     setDisplayName(user?.display_name ?? '')
@@ -30,8 +32,7 @@ export function ProfileScreen() {
   }
 
   async function revoke() {
-    await revokeSessions.run(() => profile.destroySessions({ locale }))
-    await signOut()
+    await revokeSessions.run(async () => { await profile.destroySessions({ locale }); await signOut() })
   }
 
   return (
@@ -116,6 +117,13 @@ export function ProfileScreen() {
 
         {tab === 'notifications' && (
           <Card className="p-5">
+            <AsyncBoundary loading={prefs.loading} error={prefs.error} onRetry={prefs.reload} errorMessage={t('common.error')}>
+              {prefs.data && <div className="space-y-3 mb-5">
+                <Toggle label={t('preferences.digest')} checked={prefs.data.email_digest} disabled={savePrefs.pending} onChange={value => void savePrefs.run(async () => { const saved = await notifications.updatePreferences({ ...prefs.data!, email_digest: value }, { locale }); prefs.setData(saved) })}/>
+                {(['join_requested', 'membership_accepted', 'membership_rejected', 'membership_removed', 'quiz_published', 'graded', 'partner_request_received', 'partner_request_answered', 'ai_job_finished', 'announcement_published', 'assignment_published'] as const).map(type => <Toggle key={type} label={t(`preferences.${type}`)} checked={prefs.data!.types[type] !== false} disabled={savePrefs.pending} onChange={value => void savePrefs.run(async () => { const saved = await notifications.updatePreferences({ ...prefs.data!, types: { ...prefs.data!.types, [type]: value } }, { locale }); prefs.setData(saved) })}/>)}
+              </div>}
+            </AsyncBoundary>
+            {savePrefs.error && <Alert type="error" message={errorMessage(savePrefs.error, t('error.unknown'))}/>}
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-medium">{t('profile.prefs')}</p>
               <Btn
@@ -127,13 +135,7 @@ export function ProfileScreen() {
               </Btn>
             </div>
 
-            {notifs.error && <Alert message={t('common.error')} type="error"/>}
-
-            {notifs.loading ? (
-              <p className="text-sm text-[var(--muted-foreground)]">{t('common.loading')}</p>
-            ) : (notifs.data?.data.length ?? 0) === 0 ? (
-              <p className="text-sm text-[var(--muted-foreground)]">{t('profile.noNotifications')}</p>
-            ) : (
+            <AsyncBoundary loading={notifs.loading} error={notifs.error} onRetry={notifs.reload} errorMessage={t('common.error')} isEmpty={!notifs.data?.data.length} empty={<EmptyState message={t('profile.noNotifications')}/>}>
               <div className="divide-y divide-[var(--border)] -mx-2">
                 {(notifs.data?.data ?? []).map(item => (
                   <button
@@ -146,7 +148,7 @@ export function ProfileScreen() {
                   </button>
                 ))}
               </div>
-            )}
+            </AsyncBoundary>
           </Card>
         )}
 
@@ -159,9 +161,9 @@ export function ProfileScreen() {
                 <Alert message={errorMessage(revokeSessions.error, t('error.unknown'))} type="error"/>
               </div>
             )}
-            <Btn variant="danger" onClick={() => void revoke()} disabled={revokeSessions.pending}>
+            <ConfirmButton variant="danger" onClick={() => void revoke()} disabled={revokeSessions.pending}>
               {t('profile.logoutAll')}
-            </Btn>
+            </ConfirmButton>
           </Card>
         )}
       </div>

@@ -19,6 +19,7 @@ class AttemptResultResource extends \Illuminate\Http\Resources\Json\JsonResource
         $answers = $attempt->answers->keyBy('question_id');
 
         $quiz = $attempt->quiz->load('questions.options');
+        $reveal = $attempt->isSubmitted() && $quiz->show_answers;
 
         return [
             'id' => $attempt->id,
@@ -36,7 +37,7 @@ class AttemptResultResource extends \Illuminate\Http\Resources\Json\JsonResource
 
             'show_answers' => (bool) $quiz->show_answers,
 
-            'answers' => $quiz->questions->map(function ($question) use ($answers, $quiz) {
+            'answers' => $quiz->questions->map(function ($question) use ($answers, $reveal) {
                 /** @var \App\Models\AttemptAnswer|null $answer */
                 $answer = $answers->get($question->id);
 
@@ -44,17 +45,17 @@ class AttemptResultResource extends \Illuminate\Http\Resources\Json\JsonResource
                     'question_id' => $question->id,
                     'statement' => $question->statement,
                     'type' => $question->type->value,
-                    'is_correct' => (bool) ($answer?->is_correct ?? false),
+                    'is_correct' => $reveal ? (bool) ($answer?->is_correct ?? false) : null,
                     'awarded_score' => (float) ($answer?->awarded_score ?? 0),
                     'selected_option_ids' => array_values($answer?->selected_option_ids ?? []),
 
                     // F-QUI-06 : explication et bonnes réponses seulement
                     // si l'enseignant a autorisé l'affichage des corrections.
-                    'explanation' => $quiz->show_answers ? $question->explanation : null,
+                    'explanation' => $reveal ? $question->explanation : null,
                     'options' => $question->options->map(fn ($option) => [
                         'id' => $option->id,
                         'label' => $option->label,
-                        'is_correct' => $quiz->show_answers ? (bool) $option->is_correct : null,
+                        'is_correct' => $reveal ? (bool) $option->is_correct : null,
                     ])->values(),
                 ];
             })->values(),

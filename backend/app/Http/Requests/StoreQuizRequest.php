@@ -24,6 +24,7 @@ class StoreQuizRequest extends FormRequest
     {
         return [
             'title' => ['required', 'string', 'max:255'],
+            'due_at' => ['nullable', 'date'],
             'time_limit_min' => ['nullable', 'integer', 'min:1', 'max:600'],
             'max_attempts' => ['nullable', 'integer', 'min:1', 'max:20'],
             'shuffle' => ['nullable', 'boolean'],

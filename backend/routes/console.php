@@ -21,4 +21,5 @@ Artisan::command('inspire', function () {
 
 Schedule::command('classlink:daily-digest')->dailyAt('07:00');
 Schedule::command('classlink:prune')->dailyAt('03:00');
+Schedule::command('classlink:finalize-attempts')->everyMinute()->withoutOverlapping();
 Schedule::call(fn (AiService $ai) => $ai->resetDailyQuotas())->dailyAt('00:05');

@@ -74,6 +74,7 @@ class AppServiceProvider extends ServiceProvider
     private function registerPolicies(): void
     {
         $map = [
+            \App\Models\AppNotification::class => \App\Policies\AppNotificationPolicy::class,
             User::class => UserPolicy::class,
             Classroom::class => ClassroomPolicy::class,
             Membership::class => MembershipPolicy::class,

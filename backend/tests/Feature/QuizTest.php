@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Attempt;
+use App\Models\AttemptAnswer;
 use App\Models\Membership;
 use App\Models\Quiz;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -63,6 +64,8 @@ class QuizTest extends TestCase
             'started_at' => Carbon::now()->subMinutes(11),
         ]);
 
+        // Reponses parfaites envoyees APRÈS l'echeance : elles doivent etre
+        // rejetees, donc ni enregistrees ni corrigees (RG-12).
         $answers = $this->quiz->questions->map(fn ($q) => [
             'question_id' => $q->id,
             'option_ids' => [$q->options->firstWhere('is_correct', true)->id],
@@ -74,6 +77,118 @@ class QuizTest extends TestCase
 
         $this->assertTrue((bool) $response->json('expired'), 'La tentative doit être marquée expirée.');
         $this->assertNotNull($response->json('submitted_at'));
+
+        // Les reponses tardives ne sont pas corrigees...
+        $this->assertScore($response, 0.0);
+
+        // ...et elles ne sont pas persistées.
+        $this->assertSame(0, AttemptAnswer::where('attempt_id', $attemptId)->count());
+        $this->assertScore($response, 0.0, 'percentage');
+    }
+
+    /**
+     * RG-12 : le service refuse d'enregistrer une réponse après l'échéance.
+     *
+     * Ce garde-fou protège les appelants futurs (notamment un futur point
+     * de sauvegarde partielle) : la protection ne repose pas uniquement sur
+     * le contrôleur.
+     */
+    public function test_t15_the_service_refuses_to_save_answers_after_the_deadline(): void
+    {
+        $start = $this->actingAs($this->student)
+            ->postJson("/api/quizzes/{$this->quiz->id}/attempts")
+            ->assertStatus(201)
+            ->json();
+
+        $attempt = Attempt::findOrFail($start['attempt_id']);
+
+        Attempt::whereKey($attempt->id)->update([
+            'started_at' => Carbon::now()->subMinutes(11),
+        ]);
+
+        $answer = [
+            'question_id' => $this->quiz->questions->first()->id,
+            'option_ids' => [$this->correctOptionIds()[0]],
+        ];
+
+        try {
+            app(\App\Services\QuizGradingService::class)->saveAnswers($attempt->fresh(), [$answer]);
+
+            $this->fail('Une réponse envoyée après l\'échéance ne doit jamais être enregistrée.');
+        } catch (\App\Exceptions\BusinessRuleException $e) {
+            $this->assertSame(409, $e->status());
+        }
+
+        $this->assertSame(0, AttemptAnswer::where('attempt_id', $attempt->id)->count());
+    }
+
+    /**
+     * RG-12 : les réponses enregistrées AVANT l'échéance restent corrigées
+     * lors de la soumission automatique. Le correctif ne doit pas mettre à
+     * zéro une tentative qui avait déjà legitimately obtenu des points.
+     */
+    public function test_t15_answers_recorded_before_the_deadline_are_still_graded(): void
+    {
+        $start = $this->actingAs($this->student)
+            ->postJson("/api/quizzes/{$this->quiz->id}/attempts")
+            ->assertStatus(201)
+            ->json();
+
+        $attempt = Attempt::findOrFail($start['attempt_id']);
+
+        // Réponses sauvegardées alors que le temps imparti restait.
+        app(\App\Services\QuizGradingService::class)->saveAnswers(
+            $attempt,
+            $this->quiz->questions->map(fn ($q) => [
+                'question_id' => $q->id,
+                'option_ids' => [$q->options->firstWhere('is_correct', true)->id],
+            ])->all()
+        );
+
+        Attempt::whereKey($attempt->id)->update([
+            'started_at' => Carbon::now()->subMinutes(30),
+        ]);
+
+        $response = $this->actingAs($this->student)
+            ->getJson("/api/attempts/{$attempt->id}")
+            ->assertOk();
+
+        $this->assertTrue((bool) $response->json('expired'));
+        $this->assertScore($response, 2.0);
+    }
+
+    /**
+     * Frontière d'autorisation : le chemin « tentative expirée » ne doit pas
+     * contourner le contrôle de propriété. Un autre étudiant reste refus.
+     */
+    public function test_t15_another_student_cannot_submit_an_expired_attempt(): void
+    {
+        $start = $this->actingAs($this->student)
+            ->postJson("/api/quizzes/{$this->quiz->id}/attempts")
+            ->assertStatus(201)
+            ->json();
+
+        Attempt::whereKey($start['attempt_id'])->update([
+            'started_at' => Carbon::now()->subMinutes(11),
+        ]);
+
+        $outsider = $this->student();
+
+        $this->actingAs($outsider)
+            ->postJson("/api/attempts/{$start['attempt_id']}/submit", [
+                'answers' => $this->quiz->questions->map(fn ($q) => [
+                    'question_id' => $q->id,
+                    'option_ids' => [$q->options->firstWhere('is_correct', true)->id],
+                ])->all(),
+            ])
+            ->assertStatus(403);
+
+        // L'enseignant ne soumet pas à la place de l'étudiant non plus.
+        $this->actingAs($this->teacher())
+            ->postJson("/api/attempts/{$start['attempt_id']}/submit", ['answers' => []])
+            ->assertStatus(403);
+
+        $this->assertNull(Attempt::findOrFail($start['attempt_id'])->submitted_at);
     }
 
     public function test_t15_answers_saved_before_the_deadline_are_still_graded(): void
@@ -379,9 +494,18 @@ class QuizTest extends TestCase
             ->assertStatus(201)
             ->json();
 
-        $result = $this->actingAs($this->student)
+        $before = $this->actingAs($this->student)
             ->getJson("/api/attempts/{$start['attempt_id']}")
             ->assertOk();
+        $before->assertJsonPath('answers.0.explanation', null)
+            ->assertJsonPath('answers.0.options.0.is_correct', null);
+
+        $result = $this->postJson("/api/attempts/{$start['attempt_id']}/submit", [
+            'answers' => $this->quiz->questions->map(fn ($q) => [
+                'question_id' => $q->id,
+                'option_ids' => [$q->options->firstWhere('is_correct', true)->id],
+            ])->all(),
+        ])->assertOk();
 
         $this->assertTrue($result->json('show_answers'));
 

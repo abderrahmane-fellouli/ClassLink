@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\Material;
 use App\Services\MaterialStorageService;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -18,7 +19,10 @@ use Illuminate\Http\Response;
  */
 class ContentController extends Controller
 {
-    public function __construct(private readonly MaterialStorageService $storage) {}
+    public function __construct(
+        private readonly MaterialStorageService $storage,
+        private readonly NotificationService $notifications,
+    ) {}
 
     // -------------------------------------------------------------------------
     // Ressources — F-CON-01 à F-CON-03
@@ -180,6 +184,20 @@ class ContentController extends Controller
             'author_id' => $request->user()->id,
             'pinned' => (bool) ($data['pinned'] ?? false),
         ]);
+
+        // F-CON-04 / RG-06 : la creation d'une annonce est une publication —
+        // les seuls membres ACCEPTES sont notifies. `members()` charge deja la
+        // relation `student`.
+        $this->notifications->notifyMany(
+            $classroom->members()->get()->pluck('student'),
+            NotificationService::ANNOUNCEMENT_PUBLISHED,
+            [
+                'announcement_id' => $announcement->id,
+                'title' => $announcement->title,
+                'classroom_id' => $classroom->id,
+                'classroom_name' => $classroom->name,
+            ]
+        );
 
         return response()->json(new AnnouncementResource($announcement->load('author')), 201);
     }

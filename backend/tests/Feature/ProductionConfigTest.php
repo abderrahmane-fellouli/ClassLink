@@ -105,4 +105,68 @@ class ProductionConfigTest extends TestCase
         $this->assertSame('https://app.classlink.ma', config('classlink.frontend_url'));
         $this->assertSame('/auth/microsoft/callback', config('classlink.frontend_routes.callback'));
     }
+
+    /*
+     * §16 / NF-13 — deploiement derriere un proxy.
+     */
+
+    public function test_the_database_ssl_mode_is_read_from_the_environment(): void
+    {
+        // `render.yaml` fixe `DB_SSLMODE=require`. Une valeur codee en dur
+        // (`prefer`) ignorait cette variable et laissait la connexion
+        // PostgreSQL de production potentiellement en clair.
+        putenv('DB_SSLMODE=require');
+        $_ENV['DB_SSLMODE'] = 'require';
+
+        try {
+            $fresh = require base_path('config/database.php');
+
+            $this->assertSame('require', $fresh['connections']['pgsql']['sslmode']);
+        } finally {
+            putenv('DB_SSLMODE');
+            unset($_ENV['DB_SSLMODE']);
+        }
+    }
+
+    public function test_the_database_ssl_mode_falls_back_to_prefer(): void
+    {
+        putenv('DB_SSLMODE');
+        unset($_ENV['DB_SSLMODE']);
+
+        $fresh = require base_path('config/database.php');
+
+        // Le developpement local reste compatible avec un PostgreSQL sans TLS.
+        $this->assertSame('prefer', $fresh['connections']['pgsql']['sslmode']);
+    }
+
+    public function test_proxies_are_trusted_so_the_client_ip_is_not_the_proxy_ip(): void
+    {
+        // Sans `trustProxies`, toutes les requetes partagent l'adresse du
+        // proxy : les quotas par IP deviennent globaux.
+        $response = $this->withServerVariables([
+            'REMOTE_ADDR' => '10.0.0.7',
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.42',
+        ])->getJson('/up');
+
+        $response->assertOk();
+
+        $this->assertSame(
+            '203.0.113.42',
+            request()->ip(),
+            'L\'IP du client doit etre lue dans X-Forwarded-For derriere le proxy.'
+        );
+    }
+
+    public function test_the_trusted_proxy_list_is_configurable(): void
+    {
+        // `TRUSTED_PROXIES` doit permettre de restreindre la confiance plutot
+        // que de la figer a `*` dans le code.
+        $source = file_get_contents(base_path('bootstrap/app.php'));
+
+        $this->assertStringContainsString(
+            "trustProxies(at: env('TRUSTED_PROXIES', '*'))",
+            $source,
+            'La liste des proxys de confiance doit rester configurable par l\'environnement.'
+        );
+    }
 }

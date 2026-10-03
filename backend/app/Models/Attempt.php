@@ -15,6 +15,7 @@ class Attempt extends Model
         'quiz_id',
         'student_id',
         'attempt_no',
+        'question_order',
         'score',
         'max_score',
         'started_at',
@@ -25,6 +26,7 @@ class Attempt extends Model
     protected function casts(): array
     {
         return [
+            'question_order' => 'array',
             'score' => 'float',
             'max_score' => 'float',
             'started_at' => 'datetime',
@@ -63,7 +65,7 @@ class Attempt extends Model
             return false;
         }
 
-        return now()->gt($this->started_at->copy()->addMinutes($this->quiz->time_limit_min));
+        return now()->gte($this->started_at->copy()->addMinutes($this->quiz->time_limit_min));
     }
 
     public function remainingSeconds(): ?int

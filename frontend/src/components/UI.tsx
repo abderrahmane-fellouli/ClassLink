@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useI18n } from '../i18n'
 import type { Locale } from '../lib/types'
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -10,9 +12,9 @@ export type BadgeColor = 'green' | 'orange' | 'red' | 'blue' | 'purple' | 'defau
 export const Icons = {
   Logo: () => (
     <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8 shrink-0" aria-hidden="true">
-      <rect width="32" height="32" rx="8" fill="#E8820C"/>
-      <path d="M8 16L14 10L20 16L14 22L8 16Z" fill="white"/>
-      <path d="M14 10L20 10L26 16L20 22L14 16L20 10Z" fill="white" fillOpacity="0.55"/>
+      <rect x="2" y="3" width="20" height="18" rx="7" fill="#1E5AA8"/>
+      <rect x="10" y="11" width="20" height="18" rx="7" fill="#6FA8DC"/>
+      <path d="M12 17h8" stroke="white" strokeWidth="3" strokeLinecap="round"/>
     </svg>
   ),
   Microsoft: () => (
@@ -84,9 +86,9 @@ export function Btn({
     primary: 'bg-[var(--primary)] text-white hover:bg-[#142d54] active:scale-[0.98]',
     secondary: 'bg-[var(--secondary)] text-[var(--primary)] hover:bg-[var(--muted)] active:scale-[0.98]',
     ghost: 'bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--muted)] active:scale-[0.98]',
-    danger: 'bg-[var(--danger)] text-white hover:bg-red-700 active:scale-[0.98]',
-    accent: 'bg-[var(--accent)] text-white hover:bg-orange-600 active:scale-[0.98]',
-    success: 'bg-green-600 text-white hover:bg-green-700 active:scale-[0.98]',
+    danger: 'bg-[var(--danger-strong)] text-white hover:bg-red-700 active:scale-[0.98]',
+    accent: 'bg-[var(--accent)] text-white hover:bg-[var(--primary)] active:scale-[0.98]',
+    success: 'bg-[var(--success-strong)] text-white hover:bg-green-800 active:scale-[0.98]',
   }
 
   return (
@@ -141,14 +143,18 @@ const fieldClasses =
   'w-full px-3.5 py-2.5 text-sm bg-white border border-[var(--border)] rounded-[var(--radius)] outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent placeholder:text-[var(--muted-foreground)] disabled:bg-[var(--muted)]'
 
 export function Field({ label, hint, error, children }: { label?: string; hint?: string; error?: string | null; children: ReactNode }) {
+  const id = useId()
+  const description = `${id}-description`
   return (
     <div className="flex flex-col gap-1.5">
-      {label && <label className="text-sm font-medium text-[var(--foreground)]">{label}</label>}
-      {children}
+      {label && <label htmlFor={id} className="text-sm font-medium text-[var(--foreground)]">{label}</label>}
+      {Children.map(children, child => isValidElement(child) ? cloneElement(child as React.ReactElement<Record<string, unknown>>, {
+        id, 'aria-describedby': hint || error ? description : undefined, 'aria-invalid': error ? true : undefined,
+      }) : child)}
       {error ? (
-        <p className="text-xs text-[var(--danger)]">{error}</p>
+        <p id={description} className="text-xs text-[var(--danger)]">{error}</p>
       ) : (
-        hint && <p className="text-xs text-[var(--muted-foreground)]">{hint}</p>
+        hint && <p id={description} className="text-xs text-[var(--muted-foreground)]">{hint}</p>
       )}
     </div>
   )
@@ -180,7 +186,7 @@ export function Input({
   inputMode?: 'text' | 'numeric' | 'decimal' | 'tel' | 'email' | 'search' | 'url'
 }) {
   return (
-    <Field label={label} hint={hint} error={error}>
+    <Field label={label ?? placeholder} hint={hint} error={error}>
       <input
         type={type}
         placeholder={placeholder}
@@ -214,7 +220,7 @@ export function Textarea({
   disabled?: boolean
 }) {
   return (
-    <Field label={label} error={error}>
+    <Field label={label ?? placeholder} error={error}>
       <textarea
         rows={rows}
         placeholder={placeholder}
@@ -243,7 +249,7 @@ export function Select({
   disabled?: boolean
 }) {
   return (
-    <Field label={label} error={error}>
+    <Field label={label ?? options.find(option => option.value === value)?.label} error={error}>
       <select
         value={value}
         disabled={disabled}
@@ -333,7 +339,7 @@ export function Avatar({
 /* ─── Toggle ───────────────────────────────────────────────────────── */
 export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   return (
-    <label className={`flex items-center gap-2 select-none ${disabled ? 'opacity-50' : 'cursor-pointer'}`}>
+    <div className={`flex items-center gap-2 select-none ${disabled ? 'opacity-50' : 'cursor-pointer'}`}>
       <button
         type="button"
         role="switch"
@@ -346,7 +352,7 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
         <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${checked ? 'left-5' : 'left-0.5'}`} />
       </button>
       {label && <span className="text-sm">{label}</span>}
-    </label>
+    </div>
   )
 }
 
@@ -378,12 +384,13 @@ export function PageHeader({
   actions?: ReactNode
   back?: () => void
 }) {
+  const { t } = useI18n()
   return (
     <div className="flex items-start justify-between mb-7 gap-3 flex-wrap">
       <div>
         {back && (
           <button onClick={back} className="text-xs text-[var(--muted-foreground)] mb-2 hover:text-[var(--foreground)] flex items-center gap-1">
-            ← Back
+            {t('common.back')}
           </button>
         )}
         <h1 className="font-display text-2xl font-semibold leading-tight">{title}</h1>
@@ -442,6 +449,7 @@ export function EmptyState({ message, action }: { message: string; action?: Reac
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { t } = useI18n()
   return (
     <Card className="p-6 text-center">
       <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3" style={{ color: 'var(--danger)' }}>
@@ -450,7 +458,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
       <p className="text-sm text-[var(--muted-foreground)] mb-4">{message}</p>
       {onRetry && (
         <Btn size="sm" variant="secondary" onClick={onRetry}>
-          Retry
+          {t('common.retry')}
         </Btn>
       )}
     </Card>
@@ -485,18 +493,19 @@ export function AsyncBoundary({
 }
 
 /* ─── Sélecteur de langue ──────────────────────────────────────────── */
-export function LocaleSwitch({ locale, onChange }: { locale: Locale; onChange: (locale: Locale) => void }) {
+export function LocaleSwitch({ locale, onChange, light = false }: { locale: Locale; onChange: (locale: Locale) => void; light?: boolean }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const labels: Record<Locale, string> = { fr: 'Français', en: 'English' }
 
   return (
-    <div className="relative">
+    <div className="relative" onKeyDown={event => { if (event.key === 'Escape') setOpen(false) }}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="px-2 py-1.5 text-[11px] font-medium rounded-lg border border-white/15 text-white/60 hover:text-white transition-colors"
+        className={`px-2 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${light ? 'border-[var(--border)] text-[var(--primary)]' : 'border-white/15 text-white/85 hover:text-white'}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Langue"
+        aria-label={t('profile.language')}
       >
         {labels[locale]}
       </button>
@@ -524,4 +533,51 @@ export function LocaleSwitch({ locale, onChange }: { locale: Locale; onChange: (
       )}
     </div>
   )
+}
+
+export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  const id = useId()
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const controls = () => Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? [])
+    ;(controls()[0] ?? ref.current)?.focus()
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeRef.current() }
+      if (event.key !== 'Tab') return
+      const items = controls()
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (!first) { event.preventDefault(); return }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', keydown)
+    return () => { document.removeEventListener('keydown', keydown); document.body.style.overflow = previousOverflow; previous?.focus() }
+  }, [])
+  return createPortal(<div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={event => { if (event.target === event.currentTarget) onClose() }}>
+    <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={id} className="bg-white rounded-xl border border-[var(--border)] p-6 w-full max-w-xl max-h-[90dvh] overflow-y-auto">
+      <h2 id={id} className="font-display text-xl font-semibold mb-4">{title}</h2>
+      {children}
+    </div>
+  </div>, document.body)
+}
+
+export function ConfirmButton({ message, onClick, children, ...props }: React.ComponentProps<typeof Btn> & { message?: string }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  return <>
+    <Btn {...props} onClick={() => setOpen(true)}>{children}</Btn>
+    {open && <Dialog title={t('confirm.title')} onClose={() => setOpen(false)}>
+      <p className="text-sm mb-5">{message ?? t('confirm.body')}</p>
+      <div className="flex justify-end gap-2">
+        <Btn variant="secondary" onClick={() => setOpen(false)}>{t('common.cancel')}</Btn>
+        <Btn variant="danger" onClick={() => { setOpen(false); onClick?.() }}>{t('confirm.proceed')}</Btn>
+      </div>
+    </Dialog>}
+  </>
 }

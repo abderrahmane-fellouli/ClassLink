@@ -39,7 +39,8 @@ class AssignmentPolicy
     /** F-DEV-02 : l'étudiant dépose son propre rendu. */
     public function submit(User $user, $assignment): bool
     {
-        return $user->isStudent() && $assignment->classroom->hasAcceptedMember($user->id);
+        return $user->isStudent() && ! $assignment->classroom->isReadOnly()
+            && $assignment->classroom->hasAcceptedMember($user->id);
     }
 
     /** F-DEV-03 : le propriétaire lit et note les rendus. */

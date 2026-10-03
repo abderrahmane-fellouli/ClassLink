@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\QuizStatus;
 use App\Models\Quiz;
 use App\Models\User;
 
@@ -28,9 +29,24 @@ class QuizPolicy
         return $quiz->classroom->isOwnedBy($user) && ! $quiz->classroom->isReadOnly();
     }
 
+    /**
+     * F-QUI-01 / US-25 — ajout, modification, réordonnancement et suppression
+     * d'une question existante.
+     *
+     * Réservé au **brouillon** : modifier les questions d'un quiz publié
+     * changerait l'épreuve sous les pieds des étudiants qui ont déjà répondu,
+     * et rendrait les résultats déjà calculés incohérents avec l'énoncé.
+     */
+    public function manageQuestions(User $user, Quiz $quiz): bool
+    {
+        return $quiz->status === QuizStatus::Draft->value
+            && $quiz->classroom->isOwnedBy($user)
+            && ! $quiz->classroom->isReadOnly();
+    }
+
     public function delete(User $user, Quiz $quiz): bool
     {
-        return $this->update($user, $quiz);
+        return $this->update($user, $quiz) && ! $quiz->attempts()->exists();
     }
 
     /** F-QUI-03 / §12.4 : POST /quizzes/{id}/publish — propriétaire. */
@@ -44,6 +60,7 @@ class QuizPolicy
     {
         return $quiz->isPublished()
             && $user->isStudent()
+            && ! $quiz->classroom->isReadOnly()
             && $quiz->classroom->hasAcceptedMember($user->id);
     }
 

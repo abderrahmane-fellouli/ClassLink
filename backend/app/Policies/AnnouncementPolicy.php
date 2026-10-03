@@ -10,7 +10,7 @@ class AnnouncementPolicy
 {
     public function view(User $user, Announcement $announcement): bool
     {
-        return $this->manage($user, $announcement)
+        return $announcement->classroom->isOwnedBy($user)
             || $announcement->classroom->hasAcceptedMember($user->id);
     }
 

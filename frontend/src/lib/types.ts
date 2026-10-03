@@ -127,6 +127,7 @@ export interface ApiAttemptSummary {
 
 /* QuizResource */
 export interface ApiQuiz {
+  due_at: string | null
   id: number
   classroom_id: number
   title: string
@@ -148,6 +149,7 @@ export interface ApiQuiz {
 
 /* StudentQuizResource — jamais is_correct ni explanation (RG-13) */
 export interface ApiStudentQuiz {
+  due_at: string | null
   id: number
   classroom_id: number
   title: string
@@ -177,6 +179,12 @@ export interface ApiAttemptStart {
   }[]
 }
 
+/* Reprise d'une tentative en cours : même forme qu'un démarrage, plus les
+   réponses déjà enregistrées, indexées par question_id. */
+export interface ApiActiveAttempt extends ApiAttemptStart {
+  answers: Record<string, { option_ids: number[] }>
+}
+
 /* AttemptResultResource */
 export interface ApiAttemptResult {
   id: number
@@ -194,7 +202,7 @@ export interface ApiAttemptResult {
     question_id: number
     statement: string
     type: string
-    is_correct: boolean
+    is_correct: boolean | null
     awarded_score: number
     selected_option_ids: number[]
     explanation: string | null
@@ -204,6 +212,7 @@ export interface ApiAttemptResult {
 
 /* QuizResultsResource */
 export interface ApiQuizResults {
+  distribution: { min: number; max: number; count: number }[]
   quiz: { id: number; title: string; classroom_id: number; questions_count: number }
   summary: {
     students: number
@@ -320,6 +329,7 @@ export interface ApiAiJob {
 
 /* GET /me/progress */
 export interface ApiStudentProgress {
+  trend: { direction: 'up' | 'down' | 'stable' | 'insufficient_data'; delta_percentage_points: number | null; series: { submitted_at: string | null; percentage: number }[] }
   totals: {
     quizzes_taken: number
     attempts: number
@@ -341,6 +351,7 @@ export interface ApiStudentProgress {
 
 /* GET /classes/{id}/progress */
 export interface ApiClassroomProgress {
+  inactive_students: { id: number; display_name: string }[]
   totals: {
     students: number
     quizzes: number
@@ -433,4 +444,15 @@ export interface Paginated<T> {
 
 export interface ListResponse<T> {
   data: T[]
+}
+
+export interface NotificationPreferences {
+  email_digest: boolean
+  types: Record<string, boolean>
+}
+
+export interface RosterImportResult {
+  imported: number
+  accepted: { row: number; student_id: number; display_name: string }[]
+  errors: { row: number; reason: 'invalid_email' | 'duplicate_email' | 'active_student_not_found' | 'column_count' }[]
 }

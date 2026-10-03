@@ -1,191 +1,182 @@
-# =============================================================================
-# ClassLink 1.0 — Integration continue
-# -----------------------------------------------------------------------------
-# Declenchee a chaque push et pull request. Verifie les deux projets
-# independamment, puis reproduit l'image de production.
-#
-# Aucun secret n'est necessaire : les tests sont hermetiques (SQLite en
-# memoire, stockage simule, HTTP simule).
-# =============================================================================
-
 name: CI
-
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main, develop]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main, develop]
   workflow_dispatch:
-
-# Une seule execution par commit : les branches plus recentes annulent
-# les executions obsoletees plutot que de saturer la file.
+permissions:
+  contents: read
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
-permissions:
-  contents: read
-
 jobs:
   backend:
-    name: Backend (Laravel 11)
     runs-on: ubuntu-latest
-
-    # Ces variables sont declarees au niveau du JOB, pas d'un etape : sinon
-    # elles n'existeraient que le temps de l'etape « Preparer l'environnement »
-    # et la suite de tests tournerait avec les valeurs de `.env.example`
-    # (APP_KEY vide, DEBUG actif).
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, pgsql]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: classlink_test
+          POSTGRES_USER: classlink
+          POSTGRES_PASSWORD: ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U classlink -d classlink_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       APP_ENV: testing
-      APP_KEY: base64:VGVzdEtleU9ubHlGb3JDaGFzc0xpbmtTZXN0a2V5MTIzNDU2Nzg=
+      APP_KEY: '0123456789abcdef0123456789abcdef'
       APP_DEBUG: 'false'
-      APP_URL: http://localhost
+      APP_URL: http://localhost:8000
       FRONTEND_URL: http://localhost:5173
-      DB_CONNECTION: sqlite
-      DB_DATABASE: ':memory:'
+      DB_CONNECTION: ${{ matrix.database }}
+      DB_DATABASE: ${{ matrix.database == 'pgsql' && 'classlink_test' || ':memory:' }}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: classlink
+      DB_PASSWORD: ci-only
+      DB_SSLMODE: disable
       CACHE_STORE: array
       SESSION_DRIVER: array
+      MAIL_MAILER: array
       QUEUE_CONNECTION: sync
-      FILESYSTEM_DISK: local
       DEV_AUTH_ENABLED: 'true'
-      DIGEST_TOKEN: ci-digest-token
-
     steps:
-      - name: Recuperer le code
-        uses: actions/checkout@v4
-
-      - name: Installer PHP
-        uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, pdo, pdo_sqlite, sqlite3, tokenizer, xml, ctype, curl, dom, fileinfo, openssl
+          extensions: mbstring, pdo_sqlite, pdo_pgsql, intl, zip, pcntl
           coverage: none
-
-      - name: Cache Composer
-        uses: actions/cache@v4
-        with:
-          path: ~/.composer/cache
-          key: composer-${{ runner.os }}-${{ hashFiles('backend/composer.lock') }}
-          restore-keys: composer-${{ runner.os }}-
-
-      - name: Installer les dependances
+      - run: composer validate --strict --no-check-all
         working-directory: backend
-        run: composer install --no-interaction --prefer-dist
-
-      # Un `.env` local n'est jamais versionne : on part de l'exemple. Les
-      # variables du job (`env:` ci-dessus) prennent le pas sur le fichier.
-      - name: Preparer l'environnement de test
+      - run: composer install --no-interaction --prefer-dist
         working-directory: backend
-        run: cp .env.example .env
-
-      - name: Verifier la syntaxe PHP
+      - run: find backend/app backend/config backend/database backend/routes backend/tests scripts -name '*.php' -print0 | xargs -0 -n1 php -l
+        working-directory: .
+        # PHP application syntax is also exercised by the suite and Docker build.
+      - run: php artisan migrate --force
+        if: matrix.database == 'pgsql'
         working-directory: backend
-        run: |
-          # `php -l` ne renvoie un code de sortie non nul qu'en cas d'erreur
-          # reelle ; `&& exit 1` ne s'execute donc que dans ce cas.
-          find app config database routes tests -name '*.php' -print0 \
-            | xargs -0 -n1 -P4 php -l > /dev/null
-
-      - name: Executer la suite de tests
+      - run: php artisan test --no-coverage
         working-directory: backend
-        run: php artisan test --no-coverage
-
-      - name: Verifier les commandes de livraison
+      - run: php artisan schedule:list
         working-directory: backend
-        run: |
-          php artisan classlink:prune --help      > /dev/null
-          php artisan classlink:daily-digest --help > /dev/null
-          php artisan classlink:make-super-admin --help > /dev/null
-          php artisan route:list --json > /dev/null
-
-      # Le formatage Pint est signale sans bloquer la chaine : un ecart de
-      # style ne doit pas empecher la livraison.
-      - name: Verifier le formatage (Pint)
-        working-directory: backend
-        run: |
-          if ! vendor/bin/pint --test; then
-            echo "::warning::Pint signale des ecarts de formatage (non bloquant)."
-          fi
-
-  frontend:
-    name: Frontend (React + Vite)
+  security:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-
+    timeout-minutes: 10
     steps:
-      - name: Recuperer le code
-        uses: actions/checkout@v4
-
-      - name: Installer Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - run: composer audit --locked --no-interaction
+        working-directory: backend
+      - run: npm audit --audit-level=high
+        if: always()
+        working-directory: frontend
+      - run: npm audit --audit-level=high
+        if: always()
+        working-directory: scripts
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22.20.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Installer les dependances
-        run: npm ci
-
-      - name: Verification des types
-        run: npx tsc -b --noEmit
-
-      - name: Executer les tests
-        run: npm test -- --run
-
-      - name: Construire la version de production
-        run: npm run build
-
-      - name: Verifier la presence du bundle et des redirections SPA
-        run: |
-          test -f dist/index.html
-          test -n "$(ls dist/assets/*.js)"
-          grep -q 'rewrites' vercel.json
-
-  docker:
-    name: Image Docker (production)
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test -- --run
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm ci
+        working-directory: scripts
+      - run: npx playwright install --with-deps chromium firefox
+        working-directory: scripts
+      - run: npm run browser
+        working-directory: scripts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-traces
+          path: artifacts/browser
+          retention-days: 7
+  infrastructure:
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
-
+    timeout-minutes: 20
+    env:
+      APP_KEY: '0123456789abcdef0123456789abcdef'
     steps:
-      - name: Recuperer le code
-        uses: actions/checkout@v4
-
-      - name: Construire l'image
-        run: docker build -t classlink-api:ci .
-
-      - name: Verifier qu'aucun secret n'est dans l'image
-        run: |
-          # `.env` est ignore a la construction : sa presence signalerait un
-          # probleme de contexte Docker.
-          if docker run --rm --entrypoint sh classlink-api:ci -c 'test -f .env'; then
-            echo "ECHEC : un fichier .env est present dans l'image."
-            exit 1
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - run: composer install --no-interaction --prefer-dist --no-scripts
+        working-directory: backend
+      - run: npm ci
+        working-directory: scripts
+      - run: npm test
+        working-directory: scripts
+      - run: node scripts/validate-schema.mjs
+      - run: for script in scripts/*.sh; do bash -n "$script"; done
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck scripts/*.sh
+      - run: cp backend/.env.example backend/.env
+      - run: docker compose config --quiet
+      - run: docker compose up --build --wait --wait-timeout 180
+        env:
+          APP_KEY: '0123456789abcdef0123456789abcdef'
+      - run: |
+          curl --fail http://127.0.0.1:8000/up
+          curl --fail http://127.0.0.1:8000/ready
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/.env)" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/storage/probe)" = 404
+          docker compose exec -T app php infra/queue-probe.php
+          sleep 5
+          docker compose exec -T app php infra/operations.php health
+          test "$(docker compose exec -T db psql -U classlink -d classlink -Atc 'select count(*) from jobs')" = 0
+          docker compose exec -T app php artisan schedule:run
+          docker compose exec -T app test ! -f /app/.env
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          docker compose exec -T db createdb -U classlink restore_test
+          mkdir -p backups
+          bash scripts/backup.sh
+          dump=$(find backups -name '*.dump')
+          PGDATABASE=restore_test RESTORE_CONFIRM=restore_test bash scripts/restore.sh "$dump"
+          if PGDATABASE=restore_test RESTORE_CONFIRM=restore_test bash scripts/restore.sh "$dump"; then
+            echo 'Restore safety guard failed'; exit 1
           fi
-          echo "OK : aucun .env dans l'image."
-
-      - name: Verifier le point de sante
-        run: |
-          # SQLite exige un fichier existant : sans ce `touch`, le
-          # connecteur echoue sur `/up` et l'image parait cassee.
-          docker run -d --name classlink-ci -p 8000:8000 \
-            -e APP_ENV=production -e APP_DEBUG=false \
-            -e APP_KEY=base64:VGVzdEtleU9ubHlGb3JDaGFzc0xpbmtTZXN0a2V5MTIzNDU2Nzg= \
-            -e DB_CONNECTION=sqlite -e DB_DATABASE=/tmp/db.sqlite \
-            -e CACHE_STORE=file -e SESSION_DRIVER=file -e QUEUE_CONNECTION=sync \
-            classlink-api:ci
-          docker exec classlink-ci touch /tmp/db.sqlite
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8000/up; then
-              echo ""
-              echo "OK : /up repond."
-              docker rm -f classlink-ci
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "ECHEC : /up ne repond pas."
-          docker logs classlink-ci
-          docker rm -f classlink-ci
-          exit 1
+          source_count=$(docker compose exec -T db psql -U classlink -d classlink -Atc 'select count(*) from migrations')
+          restored_count=$(docker compose exec -T db psql -U classlink -d restore_test -Atc 'select count(*) from migrations')
+          test "$source_count" = "$restored_count"
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: classlink
+          PGUSER: classlink
+          PGPASSWORD: classlink_local_only
+          PGSSLMODE: disable
+          BACKUP_DIR: backups
+      - run: docker compose logs --no-color
+        if: failure()
+      - run: docker compose down --volumes
+        if: always()

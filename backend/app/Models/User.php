@@ -37,6 +37,8 @@ class User extends Authenticatable
             'role_locked' => 'boolean',
             'is_active' => 'boolean',
             'last_login_at' => 'datetime',
+            'notification_preferences' => 'array',
+            'last_digest_at' => 'datetime',
         ];
     }
 

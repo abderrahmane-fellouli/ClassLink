@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { ApiError, errorMessage, firstFieldError } from '../lib/api'
 import { ai, assignments, classrooms, content, flashcards, joinRequests, quizzes } from '../lib/endpoints'
 import { useAction, useAsync } from '../lib/useAsync'
+import { EditButton } from '../components/EditButton'
 import type { ApiAiJob, ApiQuiz, ApiQuizResults, ApiSubmission, Locale } from '../lib/types'
 import {
   Alert,
   AsyncBoundary,
   Badge,
   Btn,
+  ConfirmButton,
   Card,
   EmptyState,
   Icons,
@@ -184,6 +186,7 @@ export function TeacherClassScreen() {
           <SettingsTab
             classroomId={classroomId}
             joinCode={detail.data?.join_code ?? null}
+            classroom={detail.data}
             joinEnabled={detail.data?.join_enabled ?? true}
             readOnly={readOnly}
             onChanged={refreshAll}
@@ -213,17 +216,14 @@ function RequestsTab({
   const action = useAction()
 
   async function decide(membershipId: number, status: 'accept' | 'reject') {
-    await action.run(() =>
-      status === 'accept'
-        ? joinRequests.accept(membershipId)
-        : joinRequests.reject(membershipId),
-    )
-    onReload()
+    await action.run(async () => {
+      try { await (status === 'accept' ? joinRequests.accept(membershipId) : joinRequests.reject(membershipId)) }
+      finally { onReload() }
+    })
   }
 
   async function acceptAll() {
-    await action.run(() => classrooms.acceptAll(classroomId))
-    onReload()
+    await action.run(async () => { await classrooms.acceptAll(classroomId); onReload() })
   }
 
   return (
@@ -235,10 +235,11 @@ function RequestsTab({
       isEmpty={items.length === 0}
       empty={<EmptyState message={t('manage.noRequests')}/>}
     >
+      {action.error && <Alert type="error" message={errorMessage(action.error, t('error.unknown'))}/>}
       <div className="flex justify-end mb-3">
-        <Btn size="sm" variant="success" onClick={() => void acceptAll()} disabled={action.pending}>
+        <ConfirmButton size="sm" variant="success" onClick={() => void acceptAll()} disabled={action.pending}>
           {t('manage.accepted')} · {items.length}
-        </Btn>
+        </ConfirmButton>
       </div>
 
       <Card className="divide-y divide-[var(--border)]">
@@ -285,13 +286,27 @@ function MembersTab({
   const { t } = useI18n()
   const action = useAction()
   const accepted = items.filter(item => item.status === 'accepted')
+  const [file, setFile] = useState<File | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [importResult, setImportResult] = useState<import('../lib/types').RosterImportResult | null>(null)
 
   async function remove(membershipId: number) {
-    await action.run(() => classrooms.removeMember(classroomId, membershipId))
-    onReload()
+    await action.run(async () => { await classrooms.removeMember(classroomId, membershipId); onReload() })
   }
 
   return (
+    <div>
+      {!readOnly && <Card className="p-4 mb-4 space-y-3">
+        <p className="text-sm">{t('roster.hint')}</p>
+        <input aria-label={t('roster.import')} type="file" accept=".csv,.txt" onChange={event => setFile(event.target.files?.[0] ?? null)}/>
+        <ConfirmButton disabled={!file || file.size > 2 * 1024 * 1024 || action.pending} onClick={() => void action.run(async () => {
+          const result = await classrooms.importMembers(classroomId, file!)
+          setNotice(t('roster.result', { count: result.imported })); setImportResult(result); onReload()
+        })}>{t('roster.import')}</ConfirmButton>
+      </Card>}
+      {notice && <Alert message={notice} type="success"/>}
+      {importResult?.errors.map(item => <Alert key={item.row} type="warning" message={t('roster.rowError', { row: item.row, reason: t(`roster.${item.reason}`) })}/>)}
+      {action.error && <Alert message={errorMessage(action.error, t('error.unknown'))} type="error"/>}
     <AsyncBoundary
       loading={loading}
       error={error}
@@ -314,14 +329,15 @@ function MembersTab({
               </p>
             </div>
             {!readOnly && (
-              <Btn size="sm" variant="ghost" onClick={() => void remove(member.membership_id)} disabled={action.pending}>
+              <ConfirmButton size="sm" variant="ghost" onClick={() => { if (member.user) void remove(member.user.id) }} disabled={action.pending || !member.user}>
                 {t('manage.remove')}
-              </Btn>
+              </ConfirmButton>
             )}
           </div>
         ))}
       </Card>
     </AsyncBoundary>
+    </div>
   )
 }
 
@@ -398,14 +414,16 @@ function AnnouncementTab({
                 <div className="flex items-center gap-2 mb-1.5">
                   {item.pinned && <Badge label={t('class.pinned')} color="orange"/>}
                   <h3 className="font-semibold text-sm flex-1">{item.title}</h3>
+                  {!readOnly && <EditButton initial={{ title: item.title, body: item.body, pinned: item.pinned }} labels={{ title: t('common.title'), body: t('publish.body'), pinned: t('publish.pin') }} save={values => content.updateAnnouncement(item.id, values, { locale })} onSaved={onReload}/>}
                   {!readOnly && (
-                    <button
-                      onClick={() => void remove.run(() => content.deleteAnnouncement(item.id, { locale })).then(onReload)}
+                    <ConfirmButton variant="ghost" size="sm"
+                      onClick={() => void remove.run(async () => { await content.deleteAnnouncement(item.id, { locale }); onReload() })}
+                      disabled={remove.pending}
                       className="text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                       aria-label={t('common.delete')}
                     >
                       <Icons.Trash/>
-                    </button>
+                    </ConfirmButton>
                   )}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap mb-2">{item.body}</p>
@@ -498,6 +516,7 @@ function MaterialsTab({
                 <span className="text-xs text-[var(--muted-foreground)]">{t('publish.dropHint')}</span>
                 <input
                   type="file"
+                  aria-label={t('publish.drop')}
                   className="hidden"
                   onChange={event => {
                     const selected = event.target.files?.[0] ?? null
@@ -515,7 +534,7 @@ function MaterialsTab({
                 />
                 {file && (
                   <span className="text-xs font-medium">
-                    {file.name} · {formatNumber(Math.round(file.size / 1024))} Ko
+                    {file.name} · {t('common.kilobytes', { count: formatNumber(Math.round(file.size / 1024)) })}
                   </span>
                 )}
               </label>
@@ -534,6 +553,7 @@ function MaterialsTab({
       )}
 
       <div>
+        {remove.error && <Alert type="error" message={errorMessage(remove.error, t('error.unknown'))}/>}
         <AsyncBoundary
           loading={loading}
           error={error}
@@ -564,14 +584,16 @@ function MaterialsTab({
                     {t('common.download')}
                   </Btn>
                 )}
+                {!readOnly && <EditButton initial={{ title: item.title, chapter: item.chapter ?? '' }} labels={{ title: t('publish.title'), chapter: t('publish.chapter') }} save={values => content.updateMaterial(item.id, values, { locale })} onSaved={onReload}/>}
                 {!readOnly && (
-                  <button
-                    onClick={() => void remove.run(() => content.deleteMaterial(item.id, { locale })).then(onReload)}
+                  <ConfirmButton variant="ghost" size="sm"
+                    onClick={() => void remove.run(async () => { await content.deleteMaterial(item.id, { locale }); onReload() })}
+                    disabled={remove.pending}
                     className="text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                     aria-label={t('common.delete')}
                   >
                     <Icons.Trash/>
-                  </button>
+                  </ConfirmButton>
                 )}
               </Card>
             ))}
@@ -607,9 +629,11 @@ function QuizzesTab({
   const [job, setJob] = useState<ApiAiJob | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [target, setTarget] = useState<'quiz' | 'flashcard'>('quiz')
+  const [deckTitle, setDeckTitle] = useState('')
+  const [cards, setCards] = useState([{ front: '', back: '' }])
+  const createDeck = useAction()
   const generate = useAction()
   const publishQuiz = useAction()
-  const reviewQuiz = useAction()
   const publishDeck = useAction()
   const decks = useAsync(signal => flashcards.list(classroomId, { signal }), [classroomId])
 
@@ -627,7 +651,7 @@ function QuizzesTab({
             onReload()
           }
         })
-        .catch(() => window.clearInterval(timer))
+        .catch(cause => { setAiError(errorMessage(cause, t('error.unknown'))); window.clearInterval(timer) })
     }, 3000)
 
     return () => window.clearInterval(timer)
@@ -636,20 +660,30 @@ function QuizzesTab({
   async function startGeneration() {
     if (!file) return
     setAiError(null)
-    const result = await generate.run(() => ai.generate(classroomId, file, target))
+    const result = await generate.run(async () => {
+      try { return await ai.generate(classroomId, file, target) }
+      catch (cause) { setAiError(cause instanceof ApiError && cause.status === 429 ? t('aiQuiz.quota') : errorMessage(cause, t('error.pdfOnly'))); throw cause }
+    })
     if (result) {
       setJob(result as ApiAiJob)
-    } else {
-      setAiError(
-        generate.error instanceof ApiError && generate.error.status === 429
-          ? t('aiQuiz.quota')
-          : errorMessage(generate.error, t('error.pdfOnly')),
-      )
     }
   }
 
   return (
     <div className="space-y-6">
+      {publishQuiz.error && <Alert type="error" message={errorMessage(publishQuiz.error, t('error.unknown'))}/>}
+      {publishDeck.error && <Alert type="error" message={errorMessage(publishDeck.error, t('error.unknown'))}/>}
+      {!readOnly && <Card className="p-5 space-y-3">
+        <h3 className="text-sm font-semibold">{t('flashcards.subtitle')}</h3>
+        <Input label={t('publish.title')} value={deckTitle} onChange={setDeckTitle}/>
+        {cards.map((card, index) => <div key={index} className="grid sm:grid-cols-2 gap-3">
+          <Input label={t('createQuiz.statement')} value={card.front} onChange={value => setCards(current => current.map((item, i) => i === index ? { ...item, front: value } : item))}/>
+          <Input label={t('aiQuiz.answer')} value={card.back} onChange={value => setCards(current => current.map((item, i) => i === index ? { ...item, back: value } : item))}/>
+        </div>)}
+        {createDeck.error && <Alert type="error" message={errorMessage(createDeck.error, t('error.unknown'))}/>}
+        <Btn variant="secondary" onClick={() => setCards(current => [...current, { front: '', back: '' }])}>{t('createQuiz.addQuestion')}</Btn>
+        <Btn disabled={createDeck.pending || !deckTitle.trim() || cards.some(card => !card.front.trim() || !card.back.trim())} onClick={() => void createDeck.run(async () => { await flashcards.create(classroomId, { title: deckTitle, cards }); setDeckTitle(''); setCards([{ front: '', back: '' }]); decks.reload(); onReload() })}>{t('common.save')}</Btn>
+      </Card>}
       {!readOnly && (
         <Card className="p-5">
           <p className="text-sm font-semibold mb-3">{t('manage.aiGenerate')}</p>
@@ -664,7 +698,7 @@ function QuizzesTab({
                   onChange={value => setTarget(value as 'quiz' | 'flashcard')}
                   options={[
                     { value: 'quiz', label: t('nav.quiz') },
-                    { value: 'flashcard', label: 'Flashcards' },
+                    { value: 'flashcard', label: t('flashcards.subtitle') },
                   ]}
                 />
               </div>
@@ -675,6 +709,7 @@ function QuizzesTab({
                 <input
                   type="file"
                   accept="application/pdf"
+                  aria-label={t('aiQuiz.dropHint')}
                   className="hidden"
                   onChange={event => setFile(event.target.files?.[0] ?? null)}
                 />
@@ -687,14 +722,14 @@ function QuizzesTab({
             </>
           ) : job.status === 'failed' ? (
             <div className="flex items-center justify-between gap-3">
-              <Alert message={job.error ? t('aiQuiz.failed') : t('aiQuiz.failed')} type="error"/>
+              <Alert message={t('aiQuiz.failed')} type="error"/>
               <Btn size="sm" variant="secondary" onClick={() => setJob(null)}>{t('common.retry')}</Btn>
             </div>
           ) : job.status === 'succeeded' ? (
             <Alert
               message={
                 job.target === 'quiz'
-                  ? t('aiQuiz.done', { count: '—' })
+                  ? t('status.done')
                   : t('aiQuiz.reviewed')
               }
               type="success"
@@ -751,6 +786,7 @@ function QuizzesTab({
                 </div>
 
                 <div className="flex gap-1.5">
+                  {quiz.status === 'draft' && !readOnly && <Link to={`/app/classes/${classroomId}/manage/quizzes/${quiz.id}/edit`}><Btn size="sm" variant="secondary">{t('common.edit')}</Btn></Link>}
                   <Link to={`/app/classes/${classroomId}/manage/quizzes/${quiz.id}/results`}>
                     <Btn size="sm" variant="ghost">{t('progress.title')}</Btn>
                   </Link>
@@ -758,8 +794,7 @@ function QuizzesTab({
                     <Btn
                       size="sm"
                       variant="secondary"
-                      onClick={() => void reviewQuiz.run(() => quizzes.review(quiz.id, { locale })).then(onReload)}
-                      disabled={reviewQuiz.pending}
+                      onClick={() => { window.location.href = `/app/classes/${classroomId}/manage/quizzes/${quiz.id}/edit` }}
                     >
                       {t('aiQuiz.review')}
                     </Btn>
@@ -775,13 +810,14 @@ function QuizzesTab({
                     </Btn>
                   )}
                   {!readOnly && (
-                    <button
-                      onClick={() => void publishQuiz.run(() => quizzes.destroy(quiz.id, { locale })).then(onReload)}
+                    <ConfirmButton variant="ghost" size="sm"
+                      onClick={() => void publishQuiz.run(async () => { await quizzes.destroy(quiz.id, { locale }); onReload() })}
+                      disabled={publishQuiz.pending}
                       className="text-[var(--muted-foreground)] hover:text-[var(--danger)] px-1"
                       aria-label={t('common.delete')}
                     >
                       <Icons.Trash/>
-                    </button>
+                    </ConfirmButton>
                   )}
                 </div>
               </Card>
@@ -792,7 +828,7 @@ function QuizzesTab({
 
       {(decks.data?.data.length ?? 0) > 0 && (
         <div>
-          <h3 className="font-semibold text-sm mb-3">Flashcards</h3>
+          <h3 className="font-semibold text-sm mb-3">{t('flashcards.subtitle')}</h3>
           <div className="space-y-2.5">
             {(decks.data?.data ?? []).map(deck => (
               <Card key={deck.id} className="p-4 flex items-center gap-3">
@@ -806,6 +842,8 @@ function QuizzesTab({
                   </div>
                   <p className="text-xs text-[var(--muted-foreground)]">{t('student.questions', { count: deck.cards_count })}</p>
                 </div>
+                <Link to={`/app/flashcard-decks/${deck.id}`}><Btn size="sm" variant="secondary">{t('aiQuiz.review')}</Btn></Link>
+                {!readOnly && <ConfirmButton size="sm" variant="danger" disabled={publishDeck.pending} onClick={() => void publishDeck.run(async () => { await flashcards.destroy(deck.id, { locale }); onReload(); decks.reload() })}>{t('common.delete')}</ConfirmButton>}
                 {deck.status === 'draft' && !readOnly && (
                   <Btn
                     size="sm"
@@ -919,17 +957,19 @@ function AssignmentsTab({
                   </p>
                 </div>
                 {item.is_overdue && <Badge label={t('deadlines.overdue')} color="red"/>}
+                {!readOnly && <EditButton initial={{ title: item.title, instructions: item.instructions ?? '', due_at: item.due_at ?? '' }} labels={{ title: t('publish.title'), instructions: t('assignment.instructions'), due_at: t('assignment.dueAt') }} save={values => assignments.update(item.id, { ...values, due_at: values.due_at || null }, { locale })} onSaved={onReload}/>}
                 <Link to={`/app/classes/${classroomId}/manage/assignments/${item.id}/grade`}>
                   <Btn size="sm" variant="secondary">{t('manage.grade')}</Btn>
                 </Link>
                 {!readOnly && (
-                  <button
-                    onClick={() => void remove.run(() => assignments.destroy(item.id, { locale })).then(onReload)}
+                  <ConfirmButton variant="ghost" size="sm"
+                    onClick={() => void remove.run(async () => { await assignments.destroy(item.id, { locale }); onReload() })}
+                    disabled={remove.pending}
                     className="text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                     aria-label={t('common.delete')}
                   >
                     <Icons.Trash/>
-                  </button>
+                  </ConfirmButton>
                 )}
               </Card>
             ))}
@@ -944,12 +984,14 @@ function AssignmentsTab({
 
 function SettingsTab({
   classroomId,
+  classroom,
   joinCode,
   joinEnabled,
   readOnly,
   onChanged,
 }: {
   classroomId: number
+  classroom: import('../lib/types').ApiClassroom | null
   joinCode: string | null
   joinEnabled: boolean
   readOnly: boolean
@@ -959,6 +1001,8 @@ function SettingsTab({
   const [code, setCode] = useState(joinCode ?? '')
   const [enabled, setEnabled] = useState(joinEnabled)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copy = useAction()
   const regenerate = useAction()
   const toggle = useAction()
   const archive = useAction()
@@ -970,10 +1014,13 @@ function SettingsTab({
 
   return (
     <div className="max-w-lg space-y-4">
+      {classroom && !readOnly && <EditButton initial={{ name: classroom.name, subject: classroom.subject, group_label: classroom.group_label, school_year: classroom.school_year }} labels={{ name: t('createClass.name'), subject: t('createClass.subject'), group_label: t('createClass.group'), school_year: t('createClass.year') }} save={values => classrooms.update(classroomId, values, { locale })} onSaved={onChanged}/>}
+      {copy.error && <Alert type="error" message={t('common.error')}/>}
       <Card className="p-5">
         <p className="text-sm font-medium mb-1">{t('manage.settings.code')}</p>
         <div className="flex items-center gap-3">
           <p className="font-mono text-xl font-bold tracking-widest text-[var(--primary)] flex-1">{code}</p>
+          <Btn size="sm" variant="secondary" disabled={!code || copy.pending} onClick={() => void copy.run(async () => { await navigator.clipboard.writeText(code); setCopied(true) })}>{t(copied ? 'common.copied' : 'common.copy')}</Btn>
           {!readOnly && (
             <Btn
               size="sm"
@@ -1021,7 +1068,7 @@ function SettingsTab({
               <Btn
                 variant="danger"
                 disabled={archive.pending}
-                onClick={() => void archive.run(() => classrooms.archive(classroomId, { locale })).then(onChanged)}
+                onClick={() => void archive.run(async () => { await classrooms.archive(classroomId, { locale }); onChanged() })}
               >
                 {t('manage.settings.archive')}
               </Btn>
@@ -1042,15 +1089,12 @@ interface DraftOption {
   is_correct: boolean
 }
 
-const QUESTION_TYPES: { value: DraftQuestionType; label: string }[] = [
-  { value: 'single', label: 'Choix unique' },
-  { value: 'multiple', label: 'Choix multiple' },
-  { value: 'true_false', label: 'Vrai / Faux' },
-]
+const QUESTION_TYPES: DraftQuestionType[] = ['single', 'multiple', 'true_false']
 
 type DraftQuestionType = 'single' | 'multiple' | 'true_false'
 
 interface DraftQuestion {
+  id?: number
   statement: string
   type: DraftQuestionType
   explanation: string
@@ -1058,7 +1102,8 @@ interface DraftQuestion {
 }
 
 export function QuizEditorScreen() {
-  const { id } = useParams()
+  const { id, quizId: rawQuizId } = useParams()
+  const quizId = Number(rawQuizId)
   const classroomId = Number(id)
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -1066,6 +1111,7 @@ export function QuizEditorScreen() {
   const [step, setStep] = useState<'settings' | 'questions' | 'preview'>('settings')
   const [settings, setSettings] = useState({
     title: '',
+    due_at: '',
     time_limit_min: '',
     max_attempts: '1',
     shuffle: false,
@@ -1078,6 +1124,15 @@ export function QuizEditorScreen() {
     ] },
   ])
   const save = useAction()
+  const deletedQuestions = useRef(new Set<number>())
+  const createdDraft = useRef<ApiQuiz | null>(null)
+  const existing = useAsync(signal => quizId ? quizzes.showForTeacher(quizId, { signal }) : Promise.resolve(null), [quizId])
+  useEffect(() => {
+    const quiz = existing.data
+    if (!quiz) return
+    setSettings({ title: quiz.title, due_at: quiz.due_at ? new Date(new Date(quiz.due_at).getTime() - new Date(quiz.due_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '', time_limit_min: quiz.time_limit_min?.toString() ?? '', max_attempts: quiz.max_attempts?.toString() ?? '1', shuffle: quiz.shuffle, show_answers: quiz.show_answers })
+    setQuestions((quiz.questions ?? []).map(question => ({ id: question.id, statement: question.statement, type: question.type as DraftQuestionType, explanation: question.explanation ?? '', options: question.options ?? [] })))
+  }, [existing.data])
 
   function updateQuestion(index: number, patch: Partial<DraftQuestion>) {
     setQuestions(current => current.map((item, i) => (i === index ? { ...item, ...patch } : item)))
@@ -1109,6 +1164,7 @@ export function QuizEditorScreen() {
   async function submit(publish: boolean) {
     const payload = {
       title: settings.title,
+      due_at: settings.due_at ? new Date(settings.due_at).toISOString() : null,
       time_limit_min: settings.time_limit_min ? Number(settings.time_limit_min) : null,
       max_attempts: settings.max_attempts ? Number(settings.max_attempts) : 1,
       shuffle: settings.shuffle,
@@ -1124,15 +1180,38 @@ export function QuizEditorScreen() {
     }
 
     const result = await save.run(async () => {
-      const created = await quizzes.create(classroomId, payload)
+      let created: ApiQuiz
+      const targetId = quizId || createdDraft.current?.id
+      if (targetId) {
+        created = await quizzes.update(targetId, { ...payload, questions: undefined })
+        for (const original of (existing.data ?? createdDraft.current)?.questions ?? []) {
+          if (!questions.some(question => question.id === original.id) && !deletedQuestions.current.has(original.id)) {
+            await quizzes.deleteQuestion(original.id)
+            deletedQuestions.current.add(original.id)
+          }
+        }
+        const ids: number[] = []
+        for (let i = 0; i < questions.length; i++) {
+          const question = questions[i]
+          const saved = question.id ? await quizzes.updateQuestion(question.id, payload.questions[i]) : await quizzes.addQuestion(targetId, payload.questions[i])
+          ids.push(saved.id)
+          updateQuestion(i, { id: saved.id })
+        }
+        await quizzes.reorderQuestions(targetId, ids)
+        if (created.source === 'ai') await quizzes.review(targetId)
+      } else {
+        created = await quizzes.create(classroomId, payload)
+        createdDraft.current = created
+        created.questions?.forEach((question, index) => updateQuestion(index, { id: question.id }))
+      }
       if (publish) await quizzes.publish(created.id)
       return created
     })
     if (result) navigate(`/app/classes/${classroomId}/manage`)
   }
 
-  const incomplete = questions.some(
-    question => !question.statement.trim() || question.options.filter(o => o.label.trim()).length < 2,
+  const incomplete = !questions.length || (Boolean(quizId) && (existing.loading || Boolean(existing.error) || existing.data?.status !== 'draft')) || questions.some(
+    question => !question.statement.trim() || question.options.filter(o => o.label.trim()).length < 2 || !question.options.some(o => o.label.trim() && o.is_correct) || (question.type !== 'multiple' && question.options.filter(o => o.label.trim() && o.is_correct).length !== 1),
   )
 
   return (
@@ -1144,6 +1223,7 @@ export function QuizEditorScreen() {
       />
 
       {save.error && <div className="mb-4"><Alert message={errorMessage(save.error, t('error.unknown'))} type="error"/></div>}
+      {existing.error && <Alert message={t('common.error')} type="error"/>}
 
       {step === 'settings' && (
         <Card className="p-5 space-y-4">
@@ -1154,6 +1234,7 @@ export function QuizEditorScreen() {
             onChange={value => setSettings({ ...settings, title: value })}
           />
           <div className="grid grid-cols-2 gap-3">
+            <Input label={t('assignment.dueAt')} type="datetime-local" value={settings.due_at} onChange={value => setSettings({ ...settings, due_at: value })}/>
             <Input
               label={t('createQuiz.duration')}
               type="number"
@@ -1191,10 +1272,15 @@ export function QuizEditorScreen() {
             <Card key={index} className="p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold">{t('createQuiz.questionN', { n: index + 1 })}</p>
+                <div className="flex gap-1">
+                  <Btn size="sm" variant="ghost" disabled={index === 0} onClick={() => setQuestions(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next })}>{t('quiz.moveUp')}</Btn>
+                  <Btn size="sm" variant="ghost" disabled={index === questions.length - 1} onClick={() => setQuestions(current => { const next = [...current]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; return next })}>{t('quiz.moveDown')}</Btn>
+                  <ConfirmButton size="sm" variant="ghost" disabled={questions.length === 1} onClick={() => setQuestions(current => current.filter((_, i) => i !== index))}>{t('common.delete')}</ConfirmButton>
+                </div>
                 <Select
                   value={question.type}
                   onChange={value => updateQuestion(index, { type: value as DraftQuestionType })}
-                  options={QUESTION_TYPES}
+                   options={QUESTION_TYPES.map(value => ({ value, label: t(`quiz.type.${value}`) }))}
                 />
               </div>
 
@@ -1223,6 +1309,7 @@ export function QuizEditorScreen() {
                       value={option.label}
                       onChange={event => updateOption(index, optionIndex, { label: event.target.value })}
                       placeholder={t('createQuiz.optionN', { n: optionIndex + 1 })}
+                      aria-label={t('createQuiz.optionN', { n: optionIndex + 1 })}
                       className="flex-1 px-3 py-2 text-sm border border-[var(--border)] rounded-lg outline-none focus:ring-2 focus:ring-[var(--primary)]"
                     />
                     {question.options.length > 2 && (
@@ -1304,7 +1391,7 @@ export function QuizEditorScreen() {
           <Card className="p-5">
             <h2 className="font-display text-lg font-semibold mb-1">{settings.title}</h2>
             <p className="text-xs text-[var(--muted-foreground)] mb-4">
-              {questions.length} question{questions.length > 1 ? 's' : ''}
+              {t('student.questions', { count: questions.length })}
               {settings.time_limit_min ? ` · ${t('quiz.minutes', { count: settings.time_limit_min })}` : ''}
             </p>
             {questions.map((question, index) => (
@@ -1398,6 +1485,10 @@ export function QuizResultsScreen() {
             </div>
 
             <Card className="p-5 mb-5">
+              <h2 className="text-sm font-semibold mb-3">{t('progress.distribution')}</h2>
+              {data.distribution.map(bucket => {
+                return <div key={bucket.min} className="mb-3"><p className="text-sm">{bucket.min} - {bucket.max}% : {bucket.count}</p><ProgressBar value={data.attempts.length ? bucket.count / data.attempts.length * 100 : 0}/></div>
+              })}
               <p className="text-sm font-medium mb-3">{t('progress.byQuiz')}</p>
               <div className="space-y-3">
                 {data.most_missed.map(item => (
@@ -1442,7 +1533,7 @@ export function QuizResultsScreen() {
 /* ══ Correction des devoirs ═════════════════════════════════════════ */
 
 export function GradeScreen() {
-  const { assignmentId, classroomId } = useParams()
+  const { assignmentId, id: classroomId } = useParams()
   const { t, formatDateTime, locale } = useI18n()
 
   const list = useAsync(signal => assignments.list(Number(classroomId), { signal }), [classroomId])

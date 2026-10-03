@@ -10,11 +10,11 @@ class AttemptPolicy
 {
     public function view(User $user, Attempt $attempt): bool
     {
-        return $attempt->student_id === $user->id;
+        return $attempt->student_id === $user->id && $attempt->quiz->classroom->hasAcceptedMember($user->id);
     }
 
     public function submit(User $user, Attempt $attempt): bool
     {
-        return $attempt->student_id === $user->id;
+        return $this->view($user, $attempt) && ! $attempt->quiz->classroom->isReadOnly();
     }
 }

@@ -114,6 +114,23 @@ class PartnerMatchingService
             throw new BusinessRuleException('Action non autorisée.', 403);
         }
 
+        /*
+         * RG-17 : « Le profil partenaire est désactivé par défaut. Il n'est
+         * visible que par les membres des mêmes classes. »
+         *
+         * `candidates()` filtre déjà sur `opt_in`, mais un appel direct à
+         * l'API connaissant l'identifiant du camarade ne passait pas par ce
+         * filtre : le consentement doit être vérifié ici, sur le chemin
+         * d'écriture. Un camarade sans profil est considéré comme n'ayant
+         * rien accepté — on ne crée pas de profil à sa place.
+         */
+        if (! PartnerProfile::firstWhere('user_id', $to->id)?->opt_in) {
+            throw new BusinessRuleException(
+                'Ce camarade n\'accepte pas les demandes de contact.',
+                403
+            );
+        }
+
         $existing = PartnerRequest::where('from_user_id', $from->id)
             ->where('to_user_id', $to->id)
             ->where('classroom_id', $classroom->id)

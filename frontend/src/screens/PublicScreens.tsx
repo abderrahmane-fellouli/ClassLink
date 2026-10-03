@@ -4,14 +4,14 @@ import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { auth as authApi } from '../lib/endpoints'
 import { errorMessage } from '../lib/api'
-import { Btn, Icons, Input, Alert } from '../components/UI'
+import { Btn, ConfirmButton, Icons, Input, Alert, LocaleSwitch } from '../components/UI'
 
 const AUTH_DOMAINS = ['ofppt-edu.ma', 'ofppt.ma']
 
 /* ══ Marque + pied de page publics ══════════════════════════════════ */
 
 function PublicNav({ right }: { right?: ReactNode }) {
-  const { t } = useI18n()
+  const { t, locale, setLocale } = useI18n()
   return (
     <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-[var(--border)]">
       <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
@@ -20,6 +20,7 @@ function PublicNav({ right }: { right?: ReactNode }) {
           <span className="font-display text-lg font-semibold">{t('common.appName')}</span>
         </Link>
         <div className="flex items-center gap-3">
+          <LocaleSwitch light locale={locale} onChange={setLocale}/>
           <span className="hidden sm:block text-xs text-[var(--muted-foreground)]">v1.0 · OFPPT</span>
           {right ?? <Btn onClick={() => { window.location.href = '/login' }}>{t('home.login')}</Btn>}
         </div>
@@ -69,7 +70,7 @@ export function HomeScreen() {
         <div>
           <div
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6"
-            style={{ background: 'rgba(232,130,12,0.1)', color: 'var(--accent)' }}
+            style={{ background: 'var(--secondary)', color: 'var(--accent)' }}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]"/>
             {t('common.tagline')}
@@ -114,10 +115,10 @@ export function HomeScreen() {
                 ))}
                 <div
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg mt-3"
-                  style={{ background: 'rgba(232,130,12,0.15)' }}
+                  style={{ background: 'rgba(111,168,220,0.15)' }}
                 >
                   <Icons.Bell/>
-                  <p className="text-xs" style={{ color: '#FDBA74' }}>{t('home.pendingRequests')}</p>
+                  <p className="text-xs" style={{ color: 'var(--secondary)' }}>{t('home.pendingRequests')}</p>
                 </div>
               </div>
             </div>
@@ -226,9 +227,9 @@ export function PrivacyScreen() {
 /* ══ Connexion ═══════════════════════════════════════════════════════ */
 
 export function LoginScreen() {
-  const { t, locale } = useI18n()
+  const { t, locale, setLocale } = useI18n()
   const navigate = useNavigate()
-  const { signInWithOtp, signInWithDevRole, microsoftRedirectUrl } = useAuth()
+  const { signInWithOtp, signInWithDevRole, microsoftRedirectUrl, sessionNotice } = useAuth()
 
   const [mode, setMode] = useState<'main' | 'email' | 'code'>('main')
   const [email, setEmail] = useState('')
@@ -236,14 +237,26 @@ export function LoginScreen() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [expiresAt, setExpiresAt] = useState<number | null>(null)
+  const [remaining, setRemaining] = useState(600)
+  useEffect(() => {
+    if (!expiresAt) return
+    const tick = () => setRemaining(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)))
+    tick()
+    const timer = window.setInterval(tick, 1000)
+    return () => window.clearInterval(timer)
+  }, [expiresAt])
 
   async function sendOtp() {
+    if (pending) return
     setPending(true)
     setError(null)
     try {
       const response = await authApi.requestOtp(email, { locale })
       setNotice(response.message || t('login.otpEmail.sent'))
       setMode('code')
+      setExpiresAt(Date.now() + 600000)
+      setCode('')
     } catch (cause) {
       setError(errorMessage(cause, t('common.networkError')))
     } finally {
@@ -291,7 +304,7 @@ export function LoginScreen() {
           <span className="font-display text-xl font-semibold text-white">{t('common.appName')}</span>
         </div>
         <div className="relative z-10">
-          <p className="text-xs font-medium uppercase tracking-widest mb-4" style={{ color: 'rgba(232,130,12,0.9)' }}>
+          <p className="text-xs font-medium uppercase tracking-widest mb-4" style={{ color: 'var(--secondary)' }}>
             {t('login.brandTagline')}
           </p>
           <h1 className="font-display text-4xl font-semibold text-white leading-tight mb-5">
@@ -311,7 +324,7 @@ export function LoginScreen() {
             ))}
           </div>
         </div>
-        <p className="text-xs relative z-10" style={{ color: 'rgba(255,255,255,0.25)' }}>{t('home.rights')}</p>
+        <p className="text-xs relative z-10" style={{ color: 'rgba(255,255,255,0.75)' }}>{t('home.rights')}</p>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12" style={{ background: 'var(--background)' }}>
@@ -321,12 +334,20 @@ export function LoginScreen() {
         </div>
 
         <div className="w-full max-w-sm">
+          <div className="flex justify-end mb-4"><LocaleSwitch light locale={locale} onChange={setLocale}/></div>
           {error && <div className="mb-4"><Alert message={error} type="error"/></div>}
 
           {mode === 'main' && (
             <>
               <h2 className="font-display text-2xl font-semibold mb-1">{t('login.title')}</h2>
               <p className="text-sm text-[var(--muted-foreground)] mb-8">{t('login.subtitle')}</p>
+
+              {/* T-25 : la session a été interrompue par le serveur. */}
+              {sessionNotice && (
+                <div className="mb-4">
+                  <Alert message={sessionNotice} type="warning"/>
+                </div>
+              )}
 
               <a
                 href={microsoftRedirectUrl()}
@@ -398,6 +419,7 @@ export function LoginScreen() {
               <p className="text-sm text-[var(--muted-foreground)] mb-6">{t('login.otpCode.subtitle')}</p>
 
               {notice && <div className="mb-4"><Alert message={notice} type="info"/></div>}
+              <p className="text-sm mb-4" role="timer">{remaining ? t('otp.remaining', { time: `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}` }) : t('otp.expired')}</p>
 
               <div className="space-y-4">
                 <Input
@@ -407,10 +429,10 @@ export function LoginScreen() {
                   onChange={value => setCode(value.replace(/\D/g, '').slice(0, 6))}
                   inputMode="numeric"
                 />
-                <Btn full onClick={() => void verifyOtp()} disabled={pending || code.length !== 6}>
+                <Btn full onClick={() => void verifyOtp()} disabled={pending || !remaining || code.length !== 6}>
                   {pending ? t('common.loading') : t('login.otpCode.verify')}
                 </Btn>
-                <button onClick={() => void sendOtp()} className="text-xs text-[var(--muted-foreground)] hover:underline w-full text-center">
+                <button disabled={pending} onClick={() => void sendOtp()} className="text-xs text-[var(--muted-foreground)] hover:underline w-full text-center">
                   {t('login.otpCode.resend')}
                 </button>
               </div>
@@ -432,14 +454,14 @@ export function PendingScreen() {
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-5 text-center" style={{ background: 'var(--background)' }}>
       <div className="mb-6"><Icons.Logo/></div>
-      <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: 'rgba(232,130,12,0.12)', color: 'var(--accent)' }}>
+      <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: 'var(--secondary)', color: 'var(--accent)' }}>
         <Icons.Clock/>
       </div>
       <h1 className="font-display text-3xl font-semibold mb-3">{t('role.pending')}</h1>
       <p className="text-[var(--muted-foreground)] max-w-sm mb-8 leading-relaxed">{t('denied.step2')}</p>
-      <Btn variant="secondary" onClick={() => void signOut().then(() => navigate('/login', { replace: true }))}>
+      <ConfirmButton variant="secondary" onClick={() => void signOut().then(() => navigate('/login', { replace: true }))}>
         {t('nav.logout')}
-      </Btn>
+      </ConfirmButton>
     </div>
   )
 }

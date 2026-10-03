@@ -16,6 +16,8 @@ class QuizResultsResource extends \Illuminate\Http\Resources\Json\JsonResource
         $members = $quiz->classroom->memberships()
             ->where('status', 'accepted')
             ->count();
+        $currentMemberIds = $quiz->classroom->memberships()->where('status', 'accepted')->pluck('student_id');
+        $participants = $attempts->pluck('student_id')->unique()->intersect($currentMemberIds)->count();
 
         // F-PRO-03 : questions les plus ratées.
         $missed = [];
@@ -24,11 +26,8 @@ class QuizResultsResource extends \Illuminate\Http\Resources\Json\JsonResource
             $wrong = 0;
             foreach ($attempts as $attempt) {
                 $answer = $attempt->answers->firstWhere('question_id', $question->id);
-                if (! $answer) {
-                    continue;
-                }
                 $total++;
-                if (! $answer->is_correct) {
+                if (! $answer || ! $answer->is_correct) {
                     $wrong++;
                 }
             }
@@ -53,10 +52,10 @@ class QuizResultsResource extends \Illuminate\Http\Resources\Json\JsonResource
             ],
             'summary' => [
                 'students' => $members,
-                'participants' => $attempts->pluck('student_id')->unique()->count(),
+                'participants' => $participants,
                 'participation_rate' => $members === 0
                     ? 0.0
-                    : round(($attempts->pluck('student_id')->unique()->count() / $members) * 100, 1),
+                    : round(($participants / $members) * 100, 1),
                 'average_percentage' => $scores->isEmpty() ? 0.0 : round($scores->avg(), 1),
                 'highest_percentage' => $scores->isEmpty() ? 0.0 : round($scores->max(), 1),
                 'lowest_percentage' => $scores->isEmpty() ? 0.0 : round($scores->min(), 1),
@@ -66,6 +65,12 @@ class QuizResultsResource extends \Illuminate\Http\Resources\Json\JsonResource
             // `->resolve()` evite un deuxieme niveau `data` imbrique.
             'attempts' => AttemptSummaryResource::collection($attempts->load('student'))->resolve(),
             'most_missed' => array_slice($missed, 0, 5),
+            'distribution' => collect([[0, 20], [20, 40], [40, 60], [60, 80], [80, 100]])
+                ->map(fn ($range) => [
+                    'min' => $range[0], 'max' => $range[1],
+                    'count' => $scores->filter(fn ($score) => $score >= $range[0]
+                        && ($range[1] === 100 ? $score <= 100 : $score < $range[1]))->count(),
+                ])->all(),
         ];
     }
 }

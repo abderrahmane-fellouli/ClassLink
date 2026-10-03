@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Classroom;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -37,9 +38,8 @@ class ApiContractTest extends TestCase
 
     /**
      * Sans en-tête `Accept`, une route protégée doit répondre 401 JSON.
-     *
-     * @dataProvider unauthenticatedRoutes
      */
+    #[DataProvider('unauthenticatedRoutes')]
     public function test_protected_route_without_token_returns_401_json_even_without_accept_header(string $uri): void
     {
         $response = $this->call('GET', $uri, [], [], [], [

@@ -63,6 +63,9 @@ class QuizResultController extends Controller
             ])), ';');
 
             foreach ($rows as $row) {
+                if (preg_match('/^[\s]*[=+@-]/u', (string) $row['display_name'])) {
+                    $row['display_name'] = "'".$row['display_name'];
+                }
                 fputcsv($out, (array) $row, ';');
             }
 
