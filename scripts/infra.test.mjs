@@ -53,6 +53,51 @@ test('maintenance endpoint workflows are manual-only to avoid duplicate scheduli
     assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch'])
   }
 })
+test('nginx runtime paths are explicit and privately owned by the non-root user', () => {
+  const docker = read('Dockerfile')
+  const nginx = read('scripts/nginx.conf')
+  const runtime = read('scripts/runtime.sh')
+  assert.match(docker, /USER www-data/)
+  assert.match(docker, /USER www-data\s+#.*\s+RUN nginx -e \/dev\/stderr -t -c \/app\/infra\/nginx\.conf/)
+  assert.match(docker, /chown -R www-data:www-data \/tmp\/nginx/)
+  assert.match(docker, /chmod 750 \/tmp\/nginx/)
+  assert.doesNotMatch(docker, /chmod\s+(?:-\S+\s+)*777|USER root/)
+  assert.doesNotMatch(nginx, /^\s*user\s+/m)
+  assert.match(nginx, /pid \/tmp\/nginx\/nginx\.pid;/)
+  for (const path of ['client_body', 'proxy', 'fastcgi', 'uwsgi', 'scgi']) {
+    assert.ok(docker.includes(`/tmp/nginx/${path}`), `${path} directory created at build time`)
+    assert.ok(nginx.includes(`${path}_temp_path /tmp/nginx/${path};`), `${path} avoids package defaults`)
+  }
+  assert.match(nginx, /error_log \/dev\/stderr/)
+  assert.match(nginx, /access_log \/dev\/stdout/)
+  assert.match(runtime, /nginx -e \/dev\/stderr -t -c \/tmp\/nginx\/nginx\.conf/)
+  assert.match(runtime, /nginx -e \/dev\/stderr -c \/tmp\/nginx\/nginx\.conf -g 'daemon off;'/)
+  assert.match(runtime, /port="\$\{PORT:-8000\}"/)
+  assert.match(runtime, /10#\$port < 1024 \|\| 10#\$port > 65535/)
+  assert.match(runtime, /listen \$\{port\};/)
+  assert.match(docker, /http:\/\/127\.0\.0\.1:\$\{PORT:-8000\}\/up/)
+})
+test('runtime accepts Render ports and rejects privileged or invalid port values', () => {
+  const runtime = read('scripts/runtime.sh')
+  const start = runtime.indexOf('        port="${PORT:-8000}"')
+  const end = runtime.indexOf('        # Source config', start)
+  assert.ok(start >= 0 && end > start)
+  const setup = runtime.slice(start, end)
+  const bash = process.platform === 'win32' ? `${process.env.ProgramFiles}/Git/bin/bash.exe` : 'bash'
+  const check = port => spawnSync(bash, ['-c', `${setup}\nprintf '%s' "$port"`], {
+    env: { ...process.env, PORT: port }, encoding: 'utf8',
+  })
+  for (const [input, expected] of [['', '8000'], ['8000', '8000'], ['10000', '10000'], ['1024', '1024'], ['65535', '65535'], ['08000', '8000']]) {
+    const result = check(input)
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+    assert.equal(result.stdout, expected)
+  }
+  for (const port of ['0', '80', '1023', '65536', '999999', '-1', 'abc', '8000;exit 0', '8000\n']) {
+    const result = check(port)
+    assert.equal(result.status, 1, `${port}: ${result.error?.message ?? result.stderr}`)
+    assert.match(result.stderr, /PORT must be an unprivileged TCP port/)
+  }
+})
 test('restore refuses nonempty databases and requires explicit confirmation', () => {
   const script = read('scripts/restore.sh')
   assert.match(script, /RESTORE_CONFIRM/)

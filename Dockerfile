@@ -19,10 +19,15 @@ RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/fra
     && composer dump-autoload --optimize --no-dev --no-scripts --classmap-authoritative \
     && APP_ENV=local php artisan package:discover --ansi \
     && chown -R www-data:www-data storage bootstrap/cache \
+    && mkdir -p /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi \
+    && chown -R www-data:www-data /tmp/nginx \
+    && chmod 750 /tmp/nginx /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi \
     && cp infra/php.ini /usr/local/etc/php/conf.d/classlink.ini \
     && cp infra/fpm.conf /usr/local/etc/php-fpm.d/zz-classlink.conf
 USER www-data
+# Validate the packaged nginx and runtime paths with the final, non-root UID.
+RUN nginx -e /dev/stderr -t -c /app/infra/nginx.conf
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-    CMD curl --fail --silent --max-time 5 http://127.0.0.1:8000/up && php infra/operations.php health
+    CMD curl --fail --silent --max-time 5 "http://127.0.0.1:${PORT:-8000}/up" && php infra/operations.php health
 ENTRYPOINT ["/sbin/tini", "-g", "--", "bash", "/app/infra/runtime.sh"]

@@ -154,6 +154,20 @@ jobs:
           test "$(docker compose exec -T db psql -U classlink -d classlink -Atc 'select count(*) from jobs')" = 0
           docker compose exec -T app php artisan schedule:run
           docker compose exec -T app test ! -f /app/.env
+          # Validate the real Alpine nginx binary as the image's runtime user.
+          docker compose exec -T app sh -ec '
+            test "$(id -un)" = www-data
+            test ! -w /app/infra/nginx.conf
+            for dir in /tmp/nginx /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi; do
+              test -w "$dir"
+              test "$(stat -c %U "$dir")" = www-data
+              test "$(stat -c %a "$dir")" = 750
+            done
+            nginx -e /dev/stderr -t -c /tmp/nginx/nginx.conf
+            sed "s/listen 8000;/listen 10000;/" /app/infra/nginx.conf > /tmp/nginx/port-check.conf
+            nginx -e /dev/stderr -t -c /tmp/nginx/port-check.conf
+            rm /tmp/nginx/port-check.conf
+          '
       - run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
