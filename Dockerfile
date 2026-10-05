@@ -19,9 +19,9 @@ RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/fra
     && composer dump-autoload --optimize --no-dev --no-scripts --classmap-authoritative \
     && APP_ENV=local php artisan package:discover --ansi \
     && chown -R www-data:www-data storage bootstrap/cache \
-    && mkdir -p /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi \
-    && chown -R www-data:www-data /tmp/nginx \
-    && chmod 750 /tmp/nginx /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi \
+    && mkdir -p /app/storage/nginx/client_body /app/storage/nginx/proxy /app/storage/nginx/fastcgi /app/storage/nginx/uwsgi /app/storage/nginx/scgi \
+    && chown -R www-data:www-data /app/storage/nginx \
+    && chmod 750 /app/storage/nginx /app/storage/nginx/client_body /app/storage/nginx/proxy /app/storage/nginx/fastcgi /app/storage/nginx/uwsgi /app/storage/nginx/scgi \
     && cp infra/php.ini /usr/local/etc/php/conf.d/classlink.ini \
     && cp infra/fpm.conf /usr/local/etc/php-fpm.d/zz-classlink.conf
 USER www-data

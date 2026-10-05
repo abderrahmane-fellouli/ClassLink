@@ -143,6 +143,8 @@ jobs:
       - run: docker compose up --build --wait --wait-timeout 180
         env:
           APP_KEY: '0123456789abcdef0123456789abcdef'
+      # A fresh /tmp mount must not hide any nginx runtime paths.
+      - run: docker run --rm --tmpfs /tmp --entrypoint nginx classlink-api:local -e /dev/stderr -t -c /app/infra/nginx.conf
       - run: |
           curl --fail http://127.0.0.1:8000/up
           curl --fail http://127.0.0.1:8000/ready
@@ -158,15 +160,16 @@ jobs:
           docker compose exec -T app sh -ec '
             test "$(id -un)" = www-data
             test ! -w /app/infra/nginx.conf
-            for dir in /tmp/nginx /tmp/nginx/client_body /tmp/nginx/proxy /tmp/nginx/fastcgi /tmp/nginx/uwsgi /tmp/nginx/scgi; do
+            for dir in /app/storage/nginx /app/storage/nginx/client_body /app/storage/nginx/proxy /app/storage/nginx/fastcgi /app/storage/nginx/uwsgi /app/storage/nginx/scgi; do
               test -w "$dir"
               test "$(stat -c %U "$dir")" = www-data
               test "$(stat -c %a "$dir")" = 750
             done
-            nginx -e /dev/stderr -t -c /tmp/nginx/nginx.conf
-            sed "s/listen 8000;/listen 10000;/" /app/infra/nginx.conf > /tmp/nginx/port-check.conf
-            nginx -e /dev/stderr -t -c /tmp/nginx/port-check.conf
-            rm /tmp/nginx/port-check.conf
+            test "$(stat -c %a /app/storage/nginx/nginx.conf)" = 640
+            nginx -e /dev/stderr -t -c /app/storage/nginx/nginx.conf
+            sed "s/listen 8000;/listen 10000;/" /app/infra/nginx.conf > /app/storage/nginx/port-check.conf
+            nginx -e /dev/stderr -t -c /app/storage/nginx/port-check.conf
+            rm /app/storage/nginx/port-check.conf
           '
       - run: |
           sudo apt-get update

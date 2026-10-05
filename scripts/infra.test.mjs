@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
@@ -59,19 +60,20 @@ test('nginx runtime paths are explicit and privately owned by the non-root user'
   const runtime = read('scripts/runtime.sh')
   assert.match(docker, /USER www-data/)
   assert.match(docker, /USER www-data\s+#.*\s+RUN nginx -e \/dev\/stderr -t -c \/app\/infra\/nginx\.conf/)
-  assert.match(docker, /chown -R www-data:www-data \/tmp\/nginx/)
-  assert.match(docker, /chmod 750 \/tmp\/nginx/)
+  assert.match(docker, /chown -R www-data:www-data \/app\/storage\/nginx/)
+  assert.match(docker, /chmod 750 \/app\/storage\/nginx/)
   assert.doesNotMatch(docker, /chmod\s+(?:-\S+\s+)*777|USER root/)
   assert.doesNotMatch(nginx, /^\s*user\s+/m)
-  assert.match(nginx, /pid \/tmp\/nginx\/nginx\.pid;/)
+  assert.match(nginx, /pid \/app\/storage\/nginx\/nginx\.pid;/)
   for (const path of ['client_body', 'proxy', 'fastcgi', 'uwsgi', 'scgi']) {
-    assert.ok(docker.includes(`/tmp/nginx/${path}`), `${path} directory created at build time`)
-    assert.ok(nginx.includes(`${path}_temp_path /tmp/nginx/${path};`), `${path} avoids package defaults`)
+    assert.ok(docker.includes(`/app/storage/nginx/${path}`), `${path} directory created at build time`)
+    assert.ok(nginx.includes(`${path}_temp_path /app/storage/nginx/${path};`), `${path} avoids package defaults`)
   }
   assert.match(nginx, /error_log \/dev\/stderr/)
   assert.match(nginx, /access_log \/dev\/stdout/)
-  assert.match(runtime, /nginx -e \/dev\/stderr -t -c \/tmp\/nginx\/nginx\.conf/)
-  assert.match(runtime, /nginx -e \/dev\/stderr -c \/tmp\/nginx\/nginx\.conf -g 'daemon off;'/)
+  assert.match(runtime, /nginx -e \/dev\/stderr -t -c "\$nginx_dir\/nginx\.conf"/)
+  assert.match(runtime, /nginx -e \/dev\/stderr -c "\$nginx_dir\/nginx\.conf" -g 'daemon off;'/)
+  assert.doesNotMatch(nginx + runtime + docker, /\/tmp\/nginx/)
   assert.match(runtime, /port="\$\{PORT:-8000\}"/)
   assert.match(runtime, /10#\$port < 1024 \|\| 10#\$port > 65535/)
   assert.match(runtime, /listen \$\{port\};/)
@@ -80,7 +82,7 @@ test('nginx runtime paths are explicit and privately owned by the non-root user'
 test('runtime accepts Render ports and rejects privileged or invalid port values', () => {
   const runtime = read('scripts/runtime.sh')
   const start = runtime.indexOf('        port="${PORT:-8000}"')
-  const end = runtime.indexOf('        # Source config', start)
+  const end = runtime.indexOf('        # Prepare nginx', start)
   assert.ok(start >= 0 && end > start)
   const setup = runtime.slice(start, end)
   const bash = process.platform === 'win32' ? `${process.env.ProgramFiles}/Git/bin/bash.exe` : 'bash'
@@ -96,6 +98,41 @@ test('runtime accepts Render ports and rejects privileged or invalid port values
     const result = check(port)
     assert.equal(result.status, 1, `${port}: ${result.error?.message ?? result.stderr}`)
     assert.match(result.stderr, /PORT must be an unprivileged TCP port/)
+  }
+})
+test('startup recreates missing nginx directories and renders config on fresh and repeated starts', () => {
+  const runtime = read('scripts/runtime.sh')
+  const start = runtime.indexOf('        nginx_dir=/app/storage/nginx')
+  const end = runtime.indexOf('        # -e also', start)
+  assert.ok(start >= 0 && end > start)
+  // Execute production initialization with only the filesystem locations redirected.
+  const setup = runtime.slice(start, end)
+    .replace('nginx_dir=/app/storage/nginx', 'nginx_dir="$TEST_NGINX_DIR"')
+    .replace('infra/nginx.conf', '"$TEST_NGINX_TEMPLATE"')
+  const bash = process.platform === 'win32' ? `${process.env.ProgramFiles}/Git/bin/bash.exe` : 'bash'
+  const workspace = mkdtempSync(join(root, '.nginx-runtime-test-'))
+  const runtimeDir = join(workspace, 'nginx')
+  const run = port => {
+    const result = spawnSync(bash, ['-c', `set -Eeuo pipefail\nport=${port}\n${setup}`], {
+      env: { ...process.env, TEST_NGINX_DIR: runtimeDir.replaceAll('\\', '/'), TEST_NGINX_TEMPLATE: join(root, 'scripts/nginx.conf').replaceAll('\\', '/') },
+      encoding: 'utf8',
+    })
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+    for (const path of ['', 'client_body', 'proxy', 'fastcgi', 'uwsgi', 'scgi']) {
+      const stat = statSync(join(runtimeDir, path))
+      assert.ok(stat.isDirectory())
+      if (process.platform !== 'win32') assert.equal(stat.mode & 0o777, 0o750)
+    }
+    assert.ok(readFileSync(join(runtimeDir, 'nginx.conf'), 'utf8').includes(`listen ${port};`))
+    if (process.platform !== 'win32') assert.equal(statSync(join(runtimeDir, 'nginx.conf')).mode & 0o777, 0o640)
+  }
+  try {
+    run(10000) // No nginx directory exists before this first start.
+    run(8000) // Repeated start remains safe and updates the generated config.
+    rmSync(runtimeDir, { recursive: true })
+    run(10000) // Recreate everything after runtime state is lost.
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
   }
 })
 test('restore refuses nonempty databases and requires explicit confirmation', () => {

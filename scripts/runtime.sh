@@ -12,10 +12,17 @@ case "${1:-serve}" in
             exit 1
         fi
         port=$((10#$port))
+        # Prepare nginx on every start: runtime mounts may hide image directories.
+        # storage is owned by www-data; do not rely on image contents in /tmp.
+        nginx_dir=/app/storage/nginx
+        nginx_dirs=("$nginx_dir" "$nginx_dir/client_body" "$nginx_dir/proxy" "$nginx_dir/fastcgi" "$nginx_dir/uwsgi" "$nginx_dir/scgi")
+        (umask 027; mkdir -p "${nginx_dirs[@]}")
+        chmod 750 "${nginx_dirs[@]}"
         # Source config stays root-owned; only the rendered copy is writable.
-        (umask 027; sed "s/listen 8000;/listen ${port};/" infra/nginx.conf > /tmp/nginx/nginx.conf)
+        (umask 027; sed "s/listen 8000;/listen ${port};/" infra/nginx.conf > "$nginx_dir/nginx.conf")
+        chmod 640 "$nginx_dir/nginx.conf"
         # -e also redirects startup errors before nginx reads its config file.
-        nginx -e /dev/stderr -t -c /tmp/nginx/nginx.conf
+        nginx -e /dev/stderr -t -c "$nginx_dir/nginx.conf"
         # A single replica owns migrations and scheduling. Never seed production.
         php artisan migrate --force
         php artisan config:cache
@@ -26,7 +33,7 @@ case "${1:-serve}" in
         trap cleanup EXIT
         trap 'exit 0' TERM INT
         php-fpm -F & pids+=("$!")
-        nginx -e /dev/stderr -c /tmp/nginx/nginx.conf -g 'daemon off;' & pids+=("$!")
+        nginx -e /dev/stderr -c "$nginx_dir/nginx.conf" -g 'daemon off;' & pids+=("$!")
         php artisan queue:work database --sleep=2 --tries=1 --timeout=900 & pids+=("$!")
         bash infra/scheduler.sh & pids+=("$!")
         # Any lost child, including a clean worker exit, restarts the whole unit.
