@@ -7,6 +7,7 @@ use App\Models\Announcement;
 use App\Models\AppNotification;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -57,7 +58,8 @@ class EmailDigestService
                     || ($student->isStudent() && $notification->type === NotificationService::ANNOUNCEMENT_PUBLISHED)) {
                     continue;
                 }
-                $lines->push('- '.$notification->type.': '.($notification->payload['title'] ?? $notification->payload['classroom_name'] ?? 'ClassLink'));
+                $label = __('api.digest.types.'.$notification->type, [], $student->locale);
+                $lines->push('- '.$label.': '.($notification->payload['title'] ?? $notification->payload['classroom_name'] ?? 'ClassLink'));
             }
             if ($lines->isEmpty()) {
                 continue;
@@ -78,26 +80,27 @@ class EmailDigestService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, string>  $lines
+     * @param  Collection<int, string>  $lines
      */
     private function send(User $student, $lines): bool
     {
         $lines = $lines->implode("\n");
 
-        $body = $student->locale === 'en'
-            ? "New announcements in your classes:\n\n{$lines}"
-            : "Nouvelles annonces dans vos classes :\n\n{$lines}";
+        $body = __('api.digest.heading', [], $student->locale)."\n\n{$lines}\n\n"
+            .rtrim(config('classlink.frontend_url'), '/').'/app';
 
         try {
             Mail::raw($body, function ($message) use ($student) {
-                $message->to($student->email)->subject('ClassLink — résumé du jour');
+                $message->to($student->email)->subject(__('api.digest.subject', [], $student->locale));
             });
+
             return true;
         } catch (\Throwable $e) {
             Log::warning('Envoi du résumé impossible', [
                 'user_id' => $student->id,
-                'error' => $e->getMessage(),
+                'exception_type' => get_class($e),
             ]);
+
             return false;
         }
     }

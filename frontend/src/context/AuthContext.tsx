@@ -140,16 +140,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await api.get<ApiUser>('/me', { locale })
         setUser(me)
+        if (me.locale) setLocale(me.locale)
         setStatus('authenticated')
         return me
       } catch {
         clearToken()
         setTokenState(null)
+        setUser(null)
         setStatus('anonymous')
         return null
       }
     },
-    [locale],
+    [locale, setLocale],
   )
 
   const updateProfile = useCallback(

@@ -2,13 +2,13 @@
 
 [![Laravel 12](https://img.shields.io/badge/Laravel-12.69-red.svg)](https://laravel.com/)
 [![React 19 + Vite 8](https://img.shields.io/badge/React-19%20%2B%20Vite-8-blue.svg)](https://vitejs.dev/)
-[![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%2B-777BB4.svg)](https://www.php.net/)
+[![PHP 8.4.1+](https://img.shields.io/badge/PHP-8.4.1%2B-777BB4.svg)](https://www.php.net/)
 [![Node 22](https://img.shields.io/badge/Node-22.20-green.svg)](https://nodejs.org/)
 [![CI](https://img.shields.io/badge/CI-tests%20%2B%20security%20%2B%20infrastructure-blue.svg)](./.github/workflows/ci.yml)
 
 ClassLink est une plateforme d'apprentissage collaborative destinée à l'écosystème OFPPT (@ofppt-edu.ma). Elle permet aux enseignants et aux étudiants de partager des ressources, gérer des classes, des quiz, des devoirs, des flashcards et de bénéficier d'une génération IA pour la création de quiz (avec prévisualisation obligatoire). L'authentification s'appuie exclusivement sur Microsoft Entra ID et sur un code à usage unique (OTP) en secours ; aucun mot de passe n'est utilisé. Les règles d'accès (RG-01/RG-02) sont appliquées strictement côté serveur.
 
-- **Cahier des charges** : [`cahier_des_charges/ClassLink_Cahier_des_charges.docx`](./cahier_des_charges/ClassLink_Cahier_des_charges.docx)
+- **Cahier des charges** : [`cahier_des_charges/ClassLink_Cahier_des_Charges_Professionnel.pdf`](./cahier_des_charges/ClassLink_Cahier_des_Charges_Professionnel.pdf)
 - **Maquettes & design** : [`design/`](./design/)
 - **Documentation technique** : [`docs/`](./docs/)
 - **API (Laravel 12)** : [`backend/`](./backend/)
@@ -16,18 +16,20 @@ ClassLink est une plateforme d'apprentissage collaborative destinée à l'écosy
 
 ## Caractéristiques principales
 
-- Authentification Microsoft Entra ID + OTP. Rôle déterminé côté serveur (exactement 13 chiffres → étudiant, motif enseignant → enseignant, autre format → en attente, domaine externe → refusé).
+- Authentification Microsoft Entra ID + OTP. Classification prudente côté serveur : identifiant entièrement numérique → candidat stagiaire ; adresse OFPPT non numérique → candidat formateur, sans privilège enseignant avant approbation du super admin. Hors domaine → refusé. L’OTP ne certifie jamais une identité Microsoft.
 - Classement strict des accès : adhésion acceptée uniquement, politiques Laravel par modèle, isolation `pending/denied`.
 - Fichiers privés (stockage local/S3 compatible), jamais servis publiquement ; téléchargement via URL signée authentifiée après vérification d'autorisation (RG-12).
 - Quiz : notation automatique, tentatives limitées, anonymisation des réponses, résultats réservés aux enseignants, publication différée des brouillons IA.
 - IA générative abstraite (trois fournisseurs ordonnancés, cache par document, quota quotidien, re-tentative sur JSON invalide, mode dégradé manuel).
 - Traçabilité : journal d'audit immuable, notifications, tâches planifiées (prune, digest quotidien).
-- Détection de rôle RG-01/RG-02, CORS restreint, tokens Sanctum 8h, révocation de sessions.
+- Comptes OFPPT : domaine exact `ofppt-edu.ma`, convention numérique observée sans hypothèse de longueur ni date de naissance inférée.
+- Identité Microsoft durable par couple tenant/objet Graph, distincte de l’autorisation ClassLink. Voir [`docs/OFPPT_MICROSOFT_AUTH.md`](./docs/OFPPT_MICROSOFT_AUTH.md).
+- CORS restreint, tokens Sanctum 8h, révocation de sessions.
 
 ## Démarrage rapide (développement)
 
 ### Prérequis
-- PHP 8.2+, Composer
+- PHP 8.4.1+, Composer (Docker/CI use stable PHP 8.4; locked Symfony 8.1 packages are retained)
 - Node.js 22.20.0, npm 10.9.3
 - SQLite (local par défaut) ou PostgreSQL/MySQL
 
@@ -55,6 +57,12 @@ npm run dev  # http://localhost:5173
 
 Le proxy Vite relaye `/api` vers `http://127.0.0.1:8000` (cf. `.env.example`). En production, définir `VITE_API_URL`.
 
+Sous Windows, après cette configuration, `.\scripts\start-local.ps1 -BackgroundJobs`
+depuis la racine ouvre des terminaux persistants. Ouvrir
+`http://127.0.0.1:5173/login` et choisir un rôle de démonstration pour tester
+sans Microsoft ni SMTP. Garder les fenêtres des serveurs ouvertes.
+Le rapport de vérification locale actuel est [`docs/LOCAL_POLISH_REPORT.md`](./docs/LOCAL_POLISH_REPORT.md).
+
 ## Tests & qualité
 
 ```bash
@@ -69,7 +77,7 @@ npx tsc -b --noEmit
 npm run build
 ```
 
-Les resultats courants et limites de verification sont consignes dans [`docs/INFRA_COMPLETION.md`](./docs/INFRA_COMPLETION.md). CI installe les dependances proprement, teste SQLite/PostgreSQL, construit le frontend et l'image, execute les audits de securite et les controles d'infrastructure. Un audit en echec bloque la livraison. Les deprecations PHP 8.5 locales ne sont pas une preuve de compatibilite du runtime PHP 8.3.
+Les resultats courants et limites de verification sont consignes dans [`docs/LOCAL_POLISH_REPORT.md`](./docs/LOCAL_POLISH_REPORT.md). CI installe les dependances proprement, teste SQLite/PostgreSQL, construit le frontend et l'image, execute les audits de securite et les controles d'infrastructure. Un audit en echec bloque la livraison. Les deprecations PHP 8.5 locales ne sont pas une preuve de compatibilite du runtime PHP 8.4 de production.
 
 ## Sécurité & confidentialité
 
@@ -107,6 +115,7 @@ documentees dans le runbook. Voir aussi [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## Notes importantes
 
-- Dépendance PDF : `smalot/pdf-parser` est optionnelle (absente du `composer.lock`/install courant). L'extracteur lève une exception explicite (« PDF non configuré ») pour forcer une création manuelle plutôt qu'un échec silencieux. Voir `docs/ASSUMPTIONS.md`.
-- PHP 8.5 (environnement local) émet des dépréciations provenant de Laravel/collision (non liées au code applicatif ClassLink) : documentées dans `docs/ASSUMPTIONS.md`, non corrigées pour préserver la compatibilité PHP 8.3 production.
+- Dépendance PDF : `smalot/pdfparser` est installée et verrouillée. L’extraction réelle du texte et du nombre de pages est testée ; les fournisseurs IA restent à vérifier avec leurs clés externes.
+- PHP 8.5 (environnement local) émet des dépréciations provenant de Laravel/collision (non liées au code applicatif ClassLink) : documentées dans `docs/ASSUMPTIONS.md`, non corrigées pour préserver la compatibilité PHP 8.4 production. Le plancher supporté est PHP 8.4.1 (Dockerfile `php:8.4-fpm-alpine`, CI `php-version: '8.4'`), imposé par les paquets Symfony 8.1 verrouillés.
+- La construction de l'image de production n'a pas pu être exécutée sur cette machine Windows (ni Docker ni WSL) : la vérification correspondante est le job CI `infrastructure` (`docker compose up --build`, probes `/up` et `/ready`, probe de file, `schedule:run`, cycle sauvegarde/restauration).
 - Ne pas modifier `design/` (source visuelle de référence). Règles métier inchangées, sécurité/privacité non affaiblies.

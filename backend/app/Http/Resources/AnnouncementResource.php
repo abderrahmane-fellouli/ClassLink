@@ -12,6 +12,7 @@ class AnnouncementResource extends \Illuminate\Http\Resources\Json\JsonResource
         return [
             'id' => $this->id,
             'classroom_id' => $this->classroom_id,
+            'classroom' => $this->whenLoaded('classroom', fn () => ['id' => $this->classroom->id, 'name' => $this->classroom->name]),
             'title' => $this->title,
             'body' => $this->body,
             'pinned' => (bool) $this->pinned,

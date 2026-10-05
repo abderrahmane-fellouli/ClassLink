@@ -6,7 +6,10 @@ use App\Enums\Role;
 use App\Models\OtpCode;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Mail\Message;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
 /**
@@ -15,6 +18,32 @@ use Tests\TestCase;
 class OtpLoginTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_smtp_failure_is_not_reported_as_success_and_invalidates_code(): void
+    {
+        Mail::shouldReceive('raw')->once()
+            ->andThrow(new \RuntimeException('SMTP password must not leak'));
+        $response = $this->withHeader('Accept-Language', 'en')
+            ->postJson('/api/auth/otp/request', ['email' => '2007031400094@ofppt-edu.ma']);
+        $response->assertStatus(503);
+        $this->assertStringNotContainsString('SMTP password', $response->getContent());
+        $this->assertDatabaseCount('otp_codes', 0);
+    }
+
+    public function test_english_otp_email_and_subject_are_localized(): void
+    {
+        Mail::shouldReceive('raw')->once()
+            ->withArgs(function ($body, $callback) {
+                $this->assertStringContainsString('Your ClassLink code is:', $body);
+                $message = new Message(new Email);
+                $callback($message);
+                $this->assertSame('Your ClassLink sign-in code', $message->getSymfonyMessage()->getSubject());
+
+                return true;
+            });
+        $this->withHeader('Accept-Language', 'en')
+            ->postJson('/api/auth/otp/request', ['email' => '2007031400094@ofppt-edu.ma'])->assertStatus(202);
+    }
 
     /**
      * Remplace le code hache par un code connu du test, via exactement le

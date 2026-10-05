@@ -8,8 +8,8 @@ use App\Exceptions\PdfExtractionException;
 /**
  * §15.3 — extraction du texte d'un PDF de cours.
  *
- * L'analyse PDF est portée par `smalot/pdf-parser`, declared dans
- * `suggest` / `require` selon l'environnement. Si la bibliotheque n'est pas
+ * L'analyse PDF est portée par `smalot/pdfparser`, dans `require`.
+ * Si la bibliotheque n'est pas
  * presente, on leve une exception explicite : mieux vaut un message clair
  * (-> creation manuelle) qu'une generation IA silencieusement vide.
  */
@@ -28,7 +28,7 @@ class SmalotPdfTextExtractor implements PdfTextExtractor
         }
 
         try {
-            $document = (new $parser())->parseFile($absolutePath);
+            $document = (new $parser)->parseFile($absolutePath);
         } catch (\Throwable $e) {
             throw new PdfExtractionException(__('api.ai.pdf_corrupted'));
         }

@@ -192,6 +192,7 @@ class AiReviewGateTest extends TestCase
     public function test_an_ai_quiz_publishes_after_an_explicit_review(): void
     {
         $quiz = $this->aiQuiz();
+        $this->actingAs($this->teacher)->getJson("/api/quizzes/{$quiz->id}/editor")->assertOk();
 
         $this->actingAs($this->teacher)
             ->postJson("/api/quizzes/{$quiz->id}/review")
@@ -251,6 +252,7 @@ class AiReviewGateTest extends TestCase
     public function test_editing_a_question_releases_the_ai_lock(): void
     {
         $quiz = $this->aiQuiz();
+        $this->actingAs($this->teacher)->getJson("/api/quizzes/{$quiz->id}/editor")->assertOk();
 
         // L'enseignant corrige une question : le contenu a bien ete relu.
         $this->actingAs($this->teacher)
@@ -329,6 +331,7 @@ class AiReviewGateTest extends TestCase
     public function test_reviewing_twice_keeps_the_first_timestamp(): void
     {
         $quiz = $this->aiQuiz();
+        $this->actingAs($this->teacher)->getJson("/api/quizzes/{$quiz->id}/editor")->assertOk();
 
         $this->actingAs($this->teacher)
             ->postJson("/api/quizzes/{$quiz->id}/review")

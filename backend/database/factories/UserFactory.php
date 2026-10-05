@@ -17,7 +17,7 @@ class UserFactory extends Factory
 
     public function definition(): array
     {
-        // 13 chiffres -> détecté « student ».
+        // Random numeric fixture, no inferred birth date or mandatory length.
         $studentNumber = (string) $this->faker->unique()->numerify('#############');
 
         return [
@@ -41,6 +41,7 @@ class UserFactory extends Factory
             'email' => $first.'.'.$last.'@ofppt-edu.ma',
             'display_name' => ucfirst($first).' '.ucfirst($last),
             'role' => Role::Teacher->value,
+            'role_locked' => true, // Explicit approved-teacher test fixture.
         ]);
     }
 

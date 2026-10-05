@@ -10,11 +10,11 @@ Legend: ✅ Done · 🚧 Partial/Could-have · ⛔ Blocked by external dependenc
 |---|---|---|---|---|---|
 | CL-1 | Laravel 11 project scaffold (API) | Story | Must | ✅ | Sanctum, Socialite, flysystem-aws-s3-v3. |
 | CL-2 | React 19 + Vite + TS frontend | Story | Must | ✅ | ESM, Tailwind 4, i18n FR/EN. |
-| CL-3 | Microsoft Entra ID OAuth (F-AUTH-01) | Story | Must | ✅ | Fragment `#token=` handoff; T-26 locale on public screens. |
+| CL-3 | Microsoft Entra ID OAuth (F-AUTH-01) | Story | Must | ✅ local / ⛔ live | State/replay protection, tenant + Graph object identity linking, single-use pending receipt, fragment token handoff. Real school-tenant testing pending; see OFPPT_MICROSOFT_AUTH.md. |
 | CL-4 | OTP fallback login (F-AUTH-02) | Story | Must | ✅ | 6-digit, 10-min TTL, hashed at rest, rate-limited. |
 | CL-5 | Dev login endpoint (§25) | Task | Must | ✅ | `POST /api/auth/dev/login`; refused in production. |
 | CL-6 | Token TTL 8h, revoke on logout (T-23/T-25) | Story | Must | ✅ | Sanctum; explicit 401 `session_expired`. |
-| CL-7 | Role detection RG-01/RG-02 server-side | Story | Must | ✅ | 13-digit=student, teacher pattern=teacher, unknown=pending, external=denied. |
+| CL-7 | Role detection RG-01/RG-02 server-side | Story | Must | ✅ local | Exact OFPPT domain; numeric local part is observed student convention (no length/birth-date inference); non-numeric is pending teacher candidate. Supersedes historical automatic-teacher interpretation. |
 
 ## Epic 2 — Classes & Memberships
 
@@ -64,10 +64,10 @@ Legend: ✅ Done · 🚧 Partial/Could-have · ⛔ Blocked by external dependenc
 
 | ID | Item | Type | Priority | Status | Notes |
 |---|---|---|---|---|---|
-| CL-50 | User management (promote/deactivate) | Story | Must | ✅ | Role locked (RG-03); audited. |
+| CL-50 | User management (promote/deactivate) | Story | Must | ✅ local | Admin-only teacher approval/rejection, approved role locked; safe candidate/email/source/status UI. |
 | CL-51 | Class transfer/archive | Story | Must | ✅ | Admin override. |
 | CL-52 | AI provider config UI | Story | Must | ✅ | Priority/enabled/limits; secrets never returned. |
-| CL-53 | Audit log (T-28) | Story | Must | ✅ | Append-only; auth + membership + role changes logged. |
+| CL-53 | Audit log (T-28) | Story | Must | ✅ local | Microsoft verification/candidate status, role approval and activation/rejection audited without provider identifiers/tokens. |
 | CL-54 | Stats dashboard | Story | Should | ✅ | Admin overview counts. |
 
 ## Epic 7 — Profile, Partners, Privacy
@@ -162,23 +162,26 @@ Full delivery verification run locally. Every row below was executed, not inferr
 
 ### Not verified here
 
-- `docker build` / `docker compose up` and the image `HEALTHCHECK` — no Docker daemon (row 18). The build
-  context itself was proven secret-free (row 19); the `docker` CI job performs the real build.
+- `docker build` / `docker compose up` and the image `HEALTHCHECK` — no Docker daemon and no WSL
+  distribution on this host. The build context itself was proven secret-free (row 19); the
+  `infrastructure` CI job performs the real build and the runtime probes.
 - Microsoft Entra ID, managed PostgreSQL, S3, Brevo and the AI providers — all need real credentials.
-- `smalot/pdf-parser` — dependency unavailable in this environment; AI degrades to the documented
-  manual fallback.
-- Real-browser visual pass for T-24 and T-27 — the logic is now automated
-  (`session-flow.test.tsx`, `i18n-layout.test.tsx`), the 360 px visual check still wants a browser.
+- Live AI model responses — `smalot/pdfparser` 2.12.5 is installed and locked, so PDF text/page
+  extraction is proven locally; only the provider call itself needs real keys.
+- Physical-device/Safari visual approval for T-24 and T-27 — the logic is automated
+  (`session-flow.test.tsx`, `i18n-layout.test.tsx`) and Chromium/Firefox viewport checks run in
+  Playwright (`scripts/browser/story-fixes.spec.mjs`, `responsive.spec.mjs`), but final sign-off on
+  a real phone remains a manual step.
 
 ## Known Issues / Follow-ups (documented, non-blocking)
 
-- **PDF parser dependency**: `smalot/pdf-parser` unavailable in this environment. AI PDF path degrades to explicit manual fallback. Not hidden; see `docs/ASSUMPTIONS.md`.
-- **PHP 8.5 local deprecations**: upstream Laravel/collision notices, not ClassLink code. Production targets PHP 8.3. Not fixed (would require vendor changes).
-- **Laravel 11 security advisories**: `composer audit` reports 4 advisories on `laravel/framework` 11.57, none fixed on the 11.x branch. The reachable one (CRLF in the default `email` rule) is mitigated in code by using `email:rfc` on every user-supplied address. Plan a Laravel 12 upgrade post-1.0; see `docs/ASSUMPTIONS.md`.
+- **PDF parser dependency**: resolved. `smalot/pdfparser` 2.12.5 is installed and locked, and real text/page extraction is asserted by `backend/tests/Unit/PdfExtractionTest.php`. Only the live model call remains unverified.
+- **PHP 8.5 local deprecations**: upstream Laravel/collision notices, not ClassLink code. Production targets PHP 8.4 (floor 8.4.1, set by the locked Symfony 8.1 packages). Not fixed (would require vendor changes); see `docs/ASSUMPTIONS.md`.
+- **Laravel security advisories**: resolved. The app runs `laravel/framework` `^12.69.3`, the first 12.x line free of every advisory that affected 11.57, and `composer audit` is clean. The CRLF issue in the old 11.x default `email` rule was additionally mitigated in code with `email:rfc`.
 - **External services not live-tested**: Microsoft Entra, managed DB, S3, Brevo, AI providers — require real credentials. Documented in `docs/ASSUMPTIONS.md`.
-- **Docker not run locally**: no Docker daemon on the delivery machine. The image is statically reviewed and built in CI; verify `docker compose up -d` once on a machine with Docker.
+- **Docker image build not run locally**: no Docker daemon and no WSL distribution on this Windows host, so `docker compose up --build` could not be executed here. The `infrastructure` CI job is the verification point (image build, `docker compose config`, `/up` + `/ready` probes, queue probe, `schedule:run`, backup/restore round trip).
 - **CSV import UX**: endpoint functional; bulk-import UX polish is optional (Could-have).
-- **E2E browser tests**: not in 1.0 scope; unit + integration coverage provided. T-24 and T-27 keep a short manual visual checklist for the first deployed run.
+- **E2E browser tests**: shipped. Playwright runs in Chromium and Firefox (`npm --prefix scripts run browser`), including the mocked story regressions and the opt-in real-local-API suites. Physical-device/Safari visual approval and final client design sign-off remain manual steps.
 
 ---
 

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { fr, type TranslationKey } from './fr'
 import { en } from './en'
 import { getStoredLocale, setStoredLocale } from '../lib/session'
@@ -44,6 +44,7 @@ function interpolate(template: string, params?: Record<string, string | number>)
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(detectLocale)
+  useEffect(() => { document.documentElement.lang = locale }, [locale])
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next)

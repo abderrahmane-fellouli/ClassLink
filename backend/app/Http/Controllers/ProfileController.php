@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Exceptions\BusinessRuleException;
 use App\Http\Resources\UserResource;
-use App\Models\AuditLog;
 use App\Services\TokenService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -38,6 +36,10 @@ class ProfileController extends Controller
              */
             'role' => ['prohibited'],
             'role_locked' => ['prohibited'],
+            'microsoft_tenant_id' => ['prohibited'],
+            'microsoft_object_id' => ['prohibited'],
+            'microsoft_verified_at' => ['prohibited'],
+            'role_candidate' => ['prohibited'],
             'is_active' => ['prohibited'],
             'email' => ['prohibited'],
         ]);

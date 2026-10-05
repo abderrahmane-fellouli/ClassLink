@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Poppins:wght@600&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
 @import 'tailwindcss';
 
 @theme inline {
@@ -46,6 +46,11 @@
   --danger-strong: #B83A2F;
   --success-strong: #23715A;
   --sky: #6FA8DC;
+  --border-subtle: #e2e6ec;
+  --radius-card: 12px;
+  --shadow-dialog: 0 16px 48px rgb(15 42 74 / 18%);
+  --page-width: 1200px;
+  --sidebar-width: 248px;
 }
 
 * {
@@ -61,6 +66,8 @@ body {
   background: var(--background);
   color: var(--foreground);
   margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .font-display {
@@ -69,27 +76,22 @@ body {
 }
 
 .font-mono { font-family: 'JetBrains Mono', monospace; }
-.font-medium, .font-bold { font-weight: 600; }
-aside [class*="text-white/"] { color: rgba(255, 255, 255, 0.85); }
-/* Keep the established SVG set, rendering UI glyphs as outlines, not brand marks. */
-svg[fill="currentColor"] { fill: none; stroke: currentColor; stroke-width: 1; stroke-linejoin: round; }
-.text-xs, .text-sm, .text-\[9px\], .text-\[10px\], .text-\[11px\] { font-size: 16px; }
-.text-lg { font-size: 20px; }
-.text-3xl, .text-4xl, .text-5xl { font-size: 32px; }
-.shadow-lg, .shadow-xl, .shadow-2xl { box-shadow: none; }
+/* Preserve Tailwind's type hierarchy and the original filled SVG geometry. */
 .font-display.text-white { color: white; }
-button, select, input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
-button { min-width: 44px; }
 input, textarea, select { min-width: 0; max-width: 100%; }
-[role="switch"] { min-width: 44px; min-height: 44px; }
-.bg-\[var\(--card\)\] { border-radius: 12px; }
-input[type="file"].hidden { display: block; max-width: 100%; }
+input, textarea, select { font: inherit; }
+.app-content { width: 100%; max-width: var(--page-width); margin-inline: auto; padding: 24px; }
+.app-sidebar { width: var(--sidebar-width); height: 100dvh; position: sticky; top: 0; flex-shrink: 0; }
+.ui-card { border-color: var(--border-subtle); border-radius: var(--radius-card); min-width: 0; }
+.ui-dialog { box-shadow: var(--shadow-dialog); }
+.mobile-bottom-nav a { flex: 1; min-width: 0; min-height: 56px; text-align: center; }
+.mobile-bottom-nav span { font-size: 11px; line-height: 1.25; overflow-wrap: anywhere; }
 @media (max-width: 767px) {
-  button, a, input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
-  button { min-width: 44px; }
-  a { display: inline-flex; align-items: center; }
-  nav.fixed.bottom-0 > a { flex: 1; min-width: 0; text-align: center; overflow-wrap: anywhere; }
-  .p-4.flex, .px-4.py-3.flex, .flex.gap-1\.5 { flex-wrap: wrap; }
+  button, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select { min-height: 44px; }
+  .app-content { padding: 20px 16px; }
+  .app-content.has-bottom-nav { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  .ui-card.flex { flex-wrap: wrap; }
+  input, textarea, select { font-size: 16px; }
 }
 
 :focus-visible {

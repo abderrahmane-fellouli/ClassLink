@@ -80,7 +80,7 @@ export function Btn({
   title?: string
   'aria-label'?: string
 }) {
-  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-5 py-2.5 text-sm', lg: 'px-6 py-3 text-base' }
+  const sizes = { sm: 'min-h-8 px-3 py-1.5 text-xs', md: 'min-h-10 px-4 py-2 text-sm', lg: 'min-h-11 px-5 py-2.5 text-base' }
   const base = `inline-flex items-center justify-center gap-2 font-medium rounded-[var(--radius)] cursor-pointer border-0 transition-all select-none ${sizes[size]} ${full ? 'w-full' : ''} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`
   const v = {
     primary: 'bg-[var(--primary)] text-white hover:bg-[#142d54] active:scale-[0.98]',
@@ -116,7 +116,7 @@ export function Badge({ label, color = 'default' }: { label: string; color?: Bad
     default: 'bg-[var(--muted)] text-[var(--muted-foreground)]',
   }
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${c[color]}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium max-w-full whitespace-normal break-words sm:whitespace-nowrap ${c[color]}`}>
       {label}
     </span>
   )
@@ -127,9 +127,9 @@ export function Card({ children, className = '', onClick }: { children: ReactNod
   const interactive = Boolean(onClick)
   return (
     <div
-      className={`bg-[var(--card)] border border-[var(--border)] rounded-[var(--radius)] ${interactive ? 'cursor-pointer hover:border-[var(--primary)]/40 transition-colors' : ''} ${className}`}
+      className={`ui-card bg-[var(--card)] border ${interactive ? 'cursor-pointer hover:border-[var(--primary)]/40 transition-colors' : ''} ${className}`}
       onClick={onClick}
-      onKeyDown={interactive ? e => { if (e.key === 'Enter' || e.key === ' ') onClick?.() } : undefined}
+      onKeyDown={interactive ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
     >
@@ -269,12 +269,20 @@ export function Select({
 /* ─── Tabs ─────────────────────────────────────────────────────────── */
 export function Tabs({ tabs, active, onChange }: { tabs: { id: string; label: string }[]; active: string; onChange: (id: string) => void }) {
   return (
-    <div role="tablist" className="flex gap-1 p-1 rounded-[var(--radius)] bg-[var(--muted)] overflow-x-auto shrink-0">
+    <div role="tablist" className="flex gap-1 p-1 rounded-[var(--radius)] bg-[var(--muted)] overflow-x-auto shrink-0" onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const current = tabs.findIndex(tab => tab.id === active)
+      const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+      onChange(tabs[index].id)
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[index]?.focus()
+    }}>
       {tabs.map(t => (
         <button
           key={t.id}
           role="tab"
           aria-selected={active === t.id}
+          tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           className={`flex-shrink-0 px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${active === t.id ? 'bg-white shadow-sm text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}`}
         >
@@ -347,9 +355,11 @@ export function Toggle({ checked, onChange, label, disabled }: { checked: boolea
         aria-label={label}
         disabled={disabled}
         onClick={() => !disabled && onChange(!checked)}
-        className={`w-10 h-5 rounded-full transition-colors relative ${checked ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
+        className="inline-flex min-h-11 min-w-11 items-center justify-center shrink-0"
       >
-        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${checked ? 'left-5' : 'left-0.5'}`} />
+        <span className={`relative block w-10 h-5 rounded-full transition-colors ${checked ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}>
+          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${checked ? 'left-5' : 'left-0.5'}`} />
+        </span>
       </button>
       {label && <span className="text-sm">{label}</span>}
     </div>
@@ -386,8 +396,8 @@ export function PageHeader({
 }) {
   const { t } = useI18n()
   return (
-    <div className="flex items-start justify-between mb-7 gap-3 flex-wrap">
-      <div>
+    <div className="flex items-start justify-between mb-6 gap-3 flex-wrap">
+      <div className="min-w-0 break-words">
         {back && (
           <button onClick={back} className="text-xs text-[var(--muted-foreground)] mb-2 hover:text-[var(--foreground)] flex items-center gap-1">
             {t('common.back')}
@@ -396,7 +406,7 @@ export function PageHeader({
         <h1 className="font-display text-2xl font-semibold leading-tight">{title}</h1>
         {subtitle && <p className="text-sm text-[var(--muted-foreground)] mt-0.5">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap max-w-full">{actions}</div>}
     </div>
   )
 }
@@ -495,43 +505,18 @@ export function AsyncBoundary({
 /* ─── Sélecteur de langue ──────────────────────────────────────────── */
 export function LocaleSwitch({ locale, onChange, light = false }: { locale: Locale; onChange: (locale: Locale) => void; light?: boolean }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const labels: Record<Locale, string> = { fr: 'Français', en: 'English' }
-
+  // Native selection remains keyboard/touch accessible inside scrolling dialogs.
+  // An absolutely positioned footer menu was clipped by its scroll container.
   return (
-    <div className="relative" onKeyDown={event => { if (event.key === 'Escape') setOpen(false) }}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className={`px-2 py-1.5 text-[11px] font-medium rounded-lg border transition-colors ${light ? 'border-[var(--border)] text-[var(--primary)]' : 'border-white/15 text-white/85 hover:text-white'}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
+      <select
+        value={locale}
+        onChange={event => onChange(event.target.value as Locale)}
+        className={`shrink-0 min-h-10 w-20 px-2 text-sm font-medium rounded-lg border cursor-pointer ${light ? 'bg-white border-[var(--border-subtle)] text-[var(--primary)]' : 'bg-[var(--sidebar)] border-white/25 text-white'}`}
         aria-label={t('profile.language')}
       >
-        {labels[locale]}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
-          <div role="menu" className="absolute right-0 mt-1 z-50 w-32 py-1 bg-white border border-[var(--border)] rounded-[var(--radius)] shadow-lg">
-            {(Object.keys(labels) as Locale[]).map(code => (
-              <button
-                key={code}
-                role="menuitem"
-                onClick={() => {
-                  onChange(code)
-                  setOpen(false)
-                }}
-                className={`block w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--muted)] ${
-                  locale === code ? 'font-semibold text-[var(--primary)]' : ''
-                }`}
-              >
-                {labels[code]}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+        <option value="fr" lang="fr">FR</option>
+        <option value="en" lang="en">EN</option>
+      </select>
   )
 }
 
@@ -560,7 +545,7 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
     return () => { document.removeEventListener('keydown', keydown); document.body.style.overflow = previousOverflow; previous?.focus() }
   }, [])
   return createPortal(<div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={event => { if (event.target === event.currentTarget) onClose() }}>
-    <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={id} className="bg-white rounded-xl border border-[var(--border)] p-6 w-full max-w-xl max-h-[90dvh] overflow-y-auto">
+    <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={id} className="ui-dialog bg-white rounded-xl border border-[var(--border-subtle)] p-4 sm:p-6 w-full max-w-xl max-h-[90dvh] overflow-y-auto">
       <h2 id={id} className="font-display text-xl font-semibold mb-4">{title}</h2>
       {children}
     </div>

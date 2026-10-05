@@ -66,5 +66,10 @@ Thumbs.db
 .vscode/
 .fleet/
 
+# Export de suivi Jira : artefact de travail local (contient des noms, identifiants
+# et metadonnees internes du projet). Le suivi fait autorite via docs/JIRA-BOARD.md.
+Jira.csv
+*.local.csv
+
 # Note : `design/` et `cahier_des_charges/` sont volontairement conserves
 # (reference de conception et exigences). `design.rar` est l'archive source.

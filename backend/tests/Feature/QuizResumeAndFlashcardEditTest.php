@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Attempt;
-use App\Models\AttemptAnswer;
 use App\Models\FlashcardDeck;
 use App\Models\Question;
 use App\Models\Quiz;
@@ -16,7 +15,7 @@ use Tests\TestCase;
  *
  * Deux manques de la version initiale :
  *  - sans recherche de tentative en cours, un rechargement de page ou un
- *    changement d'appareil faisait perdre la tentative ET consommera�� un quota
+ *    changement d'appareil faisait perdre la tentative et consommait un quota
  *    de `max_attempts` sans que l'etudiant ait repondu ;
  *  - les decks etaient creation / relecture / publication / suppression, mais
  *    pas editables, donc le contenu genere par IA ne pouvait etre corrige que
@@ -25,6 +24,17 @@ use Tests\TestCase;
 class QuizResumeAndFlashcardEditTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_noop_card_edit_does_not_certify_ai_review(): void
+    {
+        $deck = $this->aiDeck();
+        $card = $deck->cards()->create(['front' => 'Front', 'back' => 'Back', 'position' => 0]);
+        $this->actingAs($this->teacher)
+            ->patchJson("/api/flashcard-decks/{$deck->id}/cards/{$card->id}", ['front' => 'Front', 'back' => 'Back'])
+            ->assertOk();
+        $this->assertFalse($deck->fresh()->reviewed);
+        $this->postJson("/api/flashcard-decks/{$deck->id}/publish")->assertStatus(409);
+    }
 
     private $teacher;
 

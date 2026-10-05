@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\Role;
 use App\Http\Resources\UserResource;
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Services\MicrosoftAccountService;
 use App\Services\TokenService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 
 /**
@@ -16,24 +20,72 @@ use Laravel\Socialite\Facades\Socialite;
  */
 class AuthController extends Controller
 {
-    public function __construct(private readonly TokenService $tokens) {}
+    public function __construct(private readonly TokenService $tokens, private readonly MicrosoftAccountService $accounts) {}
 
     /** §12.1 — GET /auth/microsoft/redirect. */
-    public function redirect()
+    public function redirect(Request $request)
     {
-        return Socialite::driver('azure')->stateless()->redirect();
+        foreach (['client_id', 'client_secret', 'redirect', 'tenant'] as $key) {
+            if (! config('services.azure.'.$key)) {
+                return redirect($this->frontend('callback').'#error=microsoft_unavailable');
+            }
+        }
+        $authority = strtolower((string) config('services.azure.tenant'));
+        if ($authority !== 'organizations' && ! Str::isUuid($authority)) {
+            return redirect($this->frontend('callback').'#error=microsoft_unavailable');
+        }
+
+        // A short-lived, browser-bound nonce protects the OAuth handshake.
+        // API authentication remains stateless Sanctum bearer authentication.
+        $state = Str::random(64);
+        Cache::put('oauth-state:'.hash('sha256', $state), true, now()->addMinutes(10));
+        try {
+            return Socialite::driver('azure')->stateless()->with(['state' => $state])->redirect()
+                ->withCookie(cookie('classlink_oauth_state', $state, 10, '/api/auth/microsoft', null, $request->isSecure(), true, false, 'lax'));
+        } catch (\Throwable $e) {
+            Cache::forget('oauth-state:'.hash('sha256', $state));
+            Log::warning('Microsoft redirect failed', ['exception_type' => get_class($e)]);
+
+            return redirect($this->frontend('callback').'#error=microsoft_unavailable');
+        }
     }
 
     /**
      * §12.1 / §17.6 — GET /auth/microsoft/callback.
      * « Reçoit Microsoft, détecte le rôle, émet le jeton. »
      */
-    public function callback()
+    public function callback(Request $request)
     {
-        $ms = Socialite::driver('azure')->stateless()->user();
-        $email = strtolower((string) $ms->getEmail());
+        $state = $request->query('state');
+        $cookieState = $request->cookie('classlink_oauth_state');
+        if (! is_string($state) || ! is_string($cookieState) || strlen($state) !== 64
+            || ! hash_equals($cookieState, $state)) {
+            return redirect($this->frontend('callback').'#error=invalid_state');
+        }
+        $key = 'oauth-state:'.hash('sha256', $state);
+        $valid = Cache::lock($key.':lock', 10)->get(function () use ($key) {
+            return Cache::pull($key);
+        });
+        if (! $valid) {
+            return redirect($this->frontend('callback').'#error=invalid_state');
+        }
+        if ($request->has('error')) {
+            return redirect($this->frontend('callback').'#error=microsoft_cancelled');
+        }
+        try {
+            $ms = Socialite::driver('azure')->stateless()->user();
+        } catch (\Throwable $e) {
+            // Never log provider exceptions/messages, codes or access tokens.
+            Log::warning('Microsoft callback failed', ['exception_type' => get_class($e)]);
 
-        $user = $this->resolveUser($email, $ms->getName());
+            return redirect($this->frontend('callback').'#error=microsoft_unavailable');
+        }
+        try {
+            $user = $this->accounts->resolve($ms);
+        } catch (UniqueConstraintViolationException $e) {
+            // Concurrent/conflicting links fail closed; never duplicate/merge identities.
+            return $this->deny();
+        }
 
         if (! $user) {
             return $this->deny();
@@ -41,7 +93,10 @@ class AuthController extends Controller
 
         // §17.6 B : format inconnu -> ecran « Compte en attente de validation ».
         if (! $user->canAccessApp()) {
-            return redirect($this->frontend('pending'));
+            $receipt = Str::random(64);
+            Cache::put('oauth-pending:'.hash('sha256', $receipt), $user->id, now()->addMinutes(10));
+
+            return redirect($this->frontend('pending').'#verification='.$receipt);
         }
 
         $user->update(['last_login_at' => now()]);
@@ -73,7 +128,25 @@ class AuthController extends Controller
      */
     private function deny()
     {
+        AuditLog::record(null, 'auth.denied', ['reason' => 'ineligible_microsoft_identity']);
+
         return redirect($this->frontend('denied'));
+    }
+
+    /** Non-login, single-use receipt for the pending screen, without exposing identity IDs. */
+    public function pendingVerification(Request $request)
+    {
+        $data = $request->validate(['verification' => ['required', 'string', 'size:64']]);
+        $key = 'oauth-pending:'.hash('sha256', $data['verification']);
+        $id = Cache::lock($key.':lock', 10)->get(fn () => Cache::pull($key));
+        $user = $id ? User::find($id) : null;
+        abort_unless($user && $user->microsoft_verified_at !== null, 404);
+
+        return response()->json([
+            'verification_source' => 'microsoft',
+            'role_candidate' => $user->role_candidate,
+            'status' => ! $user->is_active ? 'denied' : ($user->role === 'pending' ? 'pending' : 'approved'),
+        ]);
     }
 
     /**
@@ -91,50 +164,6 @@ class AuthController extends Controller
      * §17.6 : création ou récupération du compte, avec détection de rôle
      * strictement côté serveur.
      */
-    private function resolveUser(string $email, ?string $name): ?User
-    {
-        $detected = \App\Support\RoleDetector::fromEmail($email);
-
-        if ($detected === Role::Denied->value) {
-            AuditLog::record(null, 'auth.denied', ['email_domain' => 'external']);
-
-            return null;
-        }
-
-        $user = User::where('email', $email)->first();
-
-        if (! $user) {
-            $user = User::create([
-                'email' => $email,
-                'display_name' => $name ?: 'User',
-                'role' => $detected,
-                'role_locked' => false,
-                'locale' => config('app.locale', 'fr'),
-                'is_active' => true,
-            ]);
-        } else {
-            // RG-03 : un rôle verrouillé n'est jamais recalculé.
-            // §17.6 : « pending » ne doit pas écraser un rôle attribué.
-            $resolved = \App\Support\RoleDetector::resolveFor(
-                $email,
-                (bool) $user->role_locked,
-                $user->role
-            );
-
-            if ($resolved !== $user->role) {
-                $user->update(['role' => $resolved]);
-            }
-        }
-
-        if (! $user->is_active) {
-            AuditLog::record($user, 'auth.denied', ['reason' => 'inactive']);
-
-            return null;
-        }
-
-        return $user;
-    }
-
     public function me(Request $request): UserResource
     {
         return new UserResource($request->user());

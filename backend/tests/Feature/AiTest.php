@@ -491,6 +491,7 @@ class AiTest extends TestCase
 
         $quiz = Quiz::where('source', 'ai')->firstOrFail();
 
+        $this->actingAs($teacher)->getJson("/api/quizzes/{$quiz->id}/editor")->assertOk();
         $this->actingAs($teacher)
             ->postJson("/api/quizzes/{$quiz->id}/review")
             ->assertStatus(200)

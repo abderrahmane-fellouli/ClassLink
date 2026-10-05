@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MembershipStatus;
 use App\Enums\Role;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -29,6 +30,10 @@ class User extends Authenticatable
         // exposé explicitement, et uniquement, par UserResource aux
         //	contextes légitimes (le concerned, son enseignant, l'admin).
         'email',
+        'microsoft_tenant_id',
+        'microsoft_object_id',
+        'microsoft_verified_at',
+        'role_candidate',
     ];
 
     protected function casts(): array
@@ -37,6 +42,7 @@ class User extends Authenticatable
             'role_locked' => 'boolean',
             'is_active' => 'boolean',
             'last_login_at' => 'datetime',
+            'microsoft_verified_at' => 'datetime',
             'notification_preferences' => 'array',
             'last_digest_at' => 'datetime',
         ];
@@ -98,7 +104,7 @@ class User extends Authenticatable
     public function acceptedClassrooms()
     {
         return Classroom::whereIn('id', $this->memberships()
-            ->where('status', \App\Enums\MembershipStatus::Accepted->value)
+            ->where('status', MembershipStatus::Accepted->value)
             ->select('classroom_id'));
     }
 

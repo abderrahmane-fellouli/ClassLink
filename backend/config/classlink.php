@@ -45,33 +45,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Regle de detection du role - §7 RG-01 / RG-02, §17.5
+    | Conservative OFPPT candidate classification (current authorization policy)
     |--------------------------------------------------------------------------
     | Cette regle est appliquee exclusivement cote serveur. Le navigateur
     | n'envoie jamais un role et l'API ne l'accepte pas en entree.
     |
     | Ordre d'evaluation (strictement celui de la specification) :
     |   1. le domaine doit etre @ofppt-edu.ma, sinon "denied"  (RG-01)
-    |   2. partie locale = exactement 13 chiffres  -> "student" (RG-02)
-    |   3. partie locale = motif enseignant        -> "teacher" (RG-02)
-    |   4. sinon, domaine valide                   -> "pending"
+    |   2. complete numeric local part -> student candidate (observed convention)
+    |   3. non-numeric local part -> teacher candidate, pending admin approval
+    | Microsoft verification is separate and established only by OAuth/Graph.
     */
 
     'role_detection' => [
 
         // Domaine autorise. RG-01 : seules ces adresses accedent a ClassLink.
-        'domain' => env('CLASSLINK_ALLOWED_DOMAIN', 'ofppt-edu.ma'),
+        'domain' => 'ofppt-edu.ma',
 
-        // Etudiant : exactement 13 chiffres avant le "@".
-        'student_local_regex' => '/^\d{13}$/',
+        // Numeric identifier: no assumed length and no birth-date parsing.
+        'student_local_regex' => '/^[0-9]+$/D',
 
-        // Enseignant : mots uniquement lettres, separes par des points.
-        // Tirets et apostrophes admis a l'interieur d'un mot (valeur exacte
-        // de la specification §17.5).
-        'teacher_local_regex' => "/^[a-z][a-z'\-]*(\.[a-z][a-z'\-]*)+$/",
+        // Non-numeric addresses are pending candidates, never automatic teachers.
+        'teacher_requires_approval' => true,
 
-        // Emplacements interdits dans la partie locale (RG-01).
-        'denied_local_regex' => '/(\.\.|^\.)/',
     ],
 
     /*
@@ -118,7 +114,7 @@ return [
     */
 
     'files' => [
-        'max_kb' => 10240, // 10 Mo
+        'max_kb' => 10240, // 10 Mo = 10 485 760 octets = 10 240 Kio
 
         // Liste blanche. Tout autre type est refuse avec 422.
         'material_mimes' => [
@@ -153,7 +149,7 @@ return [
     'ai' => [
         // §15.3 : PDF uniquement en version 1.0.
         'accepted_mimes' => ['application/pdf'],
-        'max_kb' => 10240,            // [a fixer] 10 Mo
+        'max_kb' => 10240,            // 10 Mo = 10 485 760 octets
         'max_pages' => 30,            // [a fixer] 30 pages
         'daily_quota_per_teacher' => 10, // [a fixer] 10 generations / jour
         'max_questions' => 30,

@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useI18n, type Translate } from '../i18n'
 import { notifications as notificationsApi } from '../lib/endpoints'
 import { useAsync } from '../lib/useAsync'
-import type { Role } from '../lib/types'
-import { ConfirmButton, Dialog, Icons, LocaleSwitch } from './UI'
+import type { Locale, Role } from '../lib/types'
+import { Alert, ConfirmButton, Dialog, Icons, LocaleSwitch } from './UI'
 
 type NavEntry = { to: string; labelKey: Parameters<Translate>[0]; icon: ReactNode; end?: boolean }
 
@@ -37,6 +37,7 @@ function navFor(role: Role): NavEntry[] {
     { to: '/app/classes', labelKey: 'nav.classes', icon: <Icons.Class/> },
     { to: '/app/deadlines', labelKey: 'nav.deadlines', icon: <Icons.Calendar/> },
     { to: '/app/partners', labelKey: 'nav.partners', icon: <Icons.Heart/> },
+    { to: '/app/progression', labelKey: 'nav.progression', icon: <Icons.Chart/> },
     { to: '/app/join', labelKey: 'nav.join', icon: <Icons.Plus/> },
     { to: '/app/profile', labelKey: 'nav.profile', icon: <Icons.User/> },
   ]
@@ -50,10 +51,17 @@ function roleLabelKey(role: Role | null) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, role, signOut, updateProfile } = useAuth()
-  const { t, locale, formatRelative } = useI18n()
+  const { t, locale, setLocale, formatRelative } = useI18n()
+  const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [localeError, setLocaleError] = useState(false)
+  async function changeLocale(value: Locale) {
+    setLocale(value)
+    setLocaleError(false)
+    try { await updateProfile({ locale: value }) } catch { setLocaleError(true) }
+  }
 
   const notifs = useAsync(
     signal => notificationsApi.list({ locale, signal }),
@@ -66,11 +74,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMobileOpen(false)
     setPanelOpen(false)
-  }, [role])
+  }, [role, location.pathname])
 
   const sidebarContent = (
     <div className="flex flex-col h-full" style={{ background: 'var(--sidebar)' }}>
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
         <Icons.Logo/>
         <span className="font-display text-lg font-semibold tracking-tight text-white">{t('common.appName')}</span>
       </div>
@@ -110,7 +118,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         ))}
       </nav>
 
-      <div className="px-5 py-4 border-t border-white/10 flex items-center gap-3">
+      <div className="px-4 py-4 border-t border-white/10 space-y-3">
+      <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ background: 'var(--accent)', color: 'white' }}>
           {user?.initials ?? '—'}
         </div>
@@ -118,11 +127,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="text-xs font-medium text-white truncate">{user?.display_name ?? ''}</p>
           <p className="text-xs text-white/45 truncate">{user?.email ?? t('common.tagline')}</p>
         </div>
-        <LocaleSwitch locale={locale} onChange={value => { void updateProfile({ locale: value }).catch(() => {}) }}/>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <LocaleSwitch locale={locale} onChange={value => void changeLocale(value)}/>
         <ConfirmButton variant="ghost"
           onClick={() => {
             setPanelOpen(false)
-            void signOut().then(() => navigate('/login', { replace: true }))
+            navigate('/', { replace: true })
+            void signOut()
           }}
           className="text-white/45 hover:text-white transition-colors"
           title={t('nav.logout')}
@@ -131,35 +143,38 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Icons.Logout/>
         </ConfirmButton>
       </div>
+      </div>
     </div>
   )
 
   return (
     <div className="flex min-h-dvh">
       <aside
-        className="hidden md:flex flex-col"
-        style={{ width: 240, minHeight: '100vh', position: 'sticky', top: 0, background: 'var(--sidebar)' }}
+        className="app-sidebar hidden md:flex flex-col"
+        style={{ background: 'var(--sidebar)' }}
       >
         {sidebarContent}
       </aside>
 
       {mobileOpen && (
-        <Dialog title={t('nav.dashboard')} onClose={() => setMobileOpen(false)}>
-          <aside className="relative w-64 flex flex-col z-10">
+        <Dialog title={t('nav.menu')} onClose={() => setMobileOpen(false)}>
+          <button onClick={() => setMobileOpen(false)} aria-label={t('common.close')} className="mb-3 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-[var(--secondary)]"><Icons.X/></button>
+          <aside className="relative w-full flex flex-col rounded-xl overflow-hidden">
             {sidebarContent}
           </aside>
         </Dialog>
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-white sticky top-0 z-40">
-          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-lg hover:bg-[var(--muted)]" aria-label={t('nav.dashboard')}>
+        <header className="md:hidden flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border-subtle)] bg-white sticky top-0 z-40">
+          <button onClick={() => setMobileOpen(true)} aria-expanded={mobileOpen} aria-haspopup="dialog" className="p-2 rounded-lg hover:bg-[var(--muted)]" aria-label={t('nav.menu')}>
             <Icons.Menu/>
           </button>
           <div className="flex items-center gap-2">
             <Icons.Logo/>
-            <span className="font-display font-semibold">{t('common.appName')}</span>
+            <span className="hidden min-[375px]:inline font-display font-semibold">{t('common.appName')}</span>
           </div>
+          <LocaleSwitch light locale={locale} onChange={value => void changeLocale(value)}/>
           <button onClick={() => setPanelOpen(v => !v)} className="p-2 rounded-lg hover:bg-[var(--muted)] relative" aria-label={t('nav.notifications')}>
             <Icons.Bell/>
             {unread > 0 && (
@@ -170,7 +185,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </header>
 
-        <main className={`flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 max-w-6xl w-full mx-auto ${role === 'student' ? 'pb-24 md:pb-8' : ''}`}>
+        <main className={`app-content flex-1 w-full max-w-[var(--page-width)] mx-auto ${role === 'student' ? 'has-bottom-nav' : ''}`}>
+          {localeError && <Alert type="warning" message={t('profile.languageSaveError')}/>}
           <div className="hidden md:flex justify-end mb-4"><button aria-label={t('nav.notifications')} onClick={() => setPanelOpen(true)} className="flex items-center gap-2"><Icons.Bell/>{unread > 0 && <span>{unread}</span>}</button></div>
           {panelOpen && (
             <NotificationPanel
@@ -195,9 +211,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {children}
         </main>
-        {role === 'student' && <nav aria-label={t('nav.dashboard')} className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[var(--border)] flex justify-around pb-[env(safe-area-inset-bottom)]">
-          {nav.filter(item => item.labelKey !== 'nav.join').map(item => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `flex flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] ${isActive ? 'text-[var(--primary)] font-semibold' : 'text-[var(--muted-foreground)]'}`}>
-            {item.icon}{t(item.labelKey)}
+        {role === 'student' && <nav aria-label={t('nav.dashboard')} className="mobile-bottom-nav md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[var(--border-subtle)] flex justify-around pb-[env(safe-area-inset-bottom)]">
+          {nav.filter(item => !['nav.join', 'nav.progression'].includes(item.labelKey)).map(item => <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `flex flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] ${isActive ? 'text-[var(--primary)] font-semibold' : 'text-[var(--muted-foreground)]'}`}>
+            {item.icon}<span>{t(item.labelKey)}</span>
           </NavLink>)}
         </nav>}
       </div>

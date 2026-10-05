@@ -50,6 +50,7 @@ export function StudentDashboard() {
 
   const classes = useAsync(signal => classrooms.list({ signal }), [])
   const progress = useAsync(signal => progression.me({ signal }), [])
+  const announcements = useAsync(signal => content.myAnnouncements({ signal }), [])
 
   const active = classes.data?.data.filter(c => c.status === 'active' && c.membership?.status === 'accepted') ?? []
   const totals = progress.data?.totals
@@ -121,10 +122,15 @@ export function StudentDashboard() {
         </div>
       </AsyncBoundary>
 
+      <section className="mt-7">
+        <h2 className="font-display text-lg font-semibold mb-4">{t('student.latestAnnouncements')}</h2>
+        <AnnouncementList items={announcements.data?.data ?? []} loading={announcements.loading} error={announcements.error} onRetry={announcements.reload} formatDate={formatDate} showClassroom/>
+      </section>
+      <div className="mt-5"><Link to="/app/progression" className="inline-flex items-center min-h-11 text-[var(--primary)]">{t('progress.fullHistory')}</Link></div>
       {recent.length > 0 && (
         <>
           {progress.data?.trend.delta_percentage_points != null && <Alert message={t('progress.trend', { delta: progress.data.trend.delta_percentage_points })}/>}
-          <h2 className="font-display text-lg font-semibold mt-8 mb-4">{t('student.upcoming')}</h2>
+          <h2 className="font-display text-lg font-semibold mt-8 mb-4">{t('student.recentResults')}</h2>
           <Card className="divide-y divide-[var(--border)]">
             {recent.map(item => (
               <Link
@@ -135,7 +141,7 @@ export function StudentDashboard() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{item.quiz_title ?? '—'}</p>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    {t('quiz.answered', { count: 1 })} · {formatDate(item.submitted_at)}
+                    {formatDate(item.submitted_at)}
                   </p>
                 </div>
                 <Badge
@@ -274,12 +280,14 @@ function AnnouncementList({
   error,
   onRetry,
   formatDate,
+  showClassroom = false,
 }: {
   items: ApiAnnouncement[]
   loading: boolean
   error: Error | null
   onRetry: () => void
   formatDate: (v: string | null) => string
+  showClassroom?: boolean
 }) {
   const { t } = useI18n()
   return (
@@ -298,6 +306,7 @@ function AnnouncementList({
               {item.pinned && <Badge label={t('class.pinned')} color="orange"/>}
               <h3 className="font-semibold text-sm">{item.title}</h3>
             </div>
+            {showClassroom && <Link to={`/app/classes/${item.classroom_id}`} className="text-xs text-[var(--primary)] inline-flex min-h-11 items-center">{item.classroom?.name ?? t('nav.classes')}</Link>}
             <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap mb-2">{item.body}</p>
             <p className="text-xs text-[var(--muted-foreground)]">
               {item.author?.display_name ?? '—'} · {formatDate(item.created_at)}
@@ -672,6 +681,7 @@ export function FlashcardStudyScreen() {
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
 
   const deck = useAsync(signal => flashcards.show(deckId, { signal }), [deckId])
   const cards = deck.data?.cards ?? []
@@ -711,8 +721,7 @@ export function FlashcardStudyScreen() {
         previous
           ? {
               ...previous,
-              // Une vraie édition vaut relecture : on reflète l'état serveur.
-              reviewed: true,
+              reviewed: saved.data.deck_reviewed ?? previous.reviewed,
               cards: previous.cards?.map(c =>
                 c.id === card.id
                   ? { ...c, front: saved.data.front, back: saved.data.back }
@@ -756,6 +765,7 @@ export function FlashcardStudyScreen() {
    */
   const mark = async (known: boolean) => {
     if (!card || saving) return
+    if (manager) { setIndex(value => (value + 1) % cards.length); setFlipped(false); return }
 
     const cardId = card.id
     const goNext = () => {
@@ -764,6 +774,7 @@ export function FlashcardStudyScreen() {
     }
 
     setSaving(true)
+    setReviewError(null)
     try {
       await flashcards.reviewCard(deckId, cardId, known)
       deck.setData(previous =>
@@ -775,9 +786,10 @@ export function FlashcardStudyScreen() {
           : previous,
       )
       goNext()
-    } catch {
+    } catch (cause) {
       // Échec de synchronisation : on reste sur la carte, l'état local n'a
       // pas été modifié et l'étudiant peut réessayer.
+      setReviewError(errorMessage(cause, t('error.unknown')))
     } finally {
       setSaving(false)
     }
@@ -800,6 +812,7 @@ export function FlashcardStudyScreen() {
         empty={<EmptyState message={t('flashcards.empty')}/>}
       >
         <>
+          {reviewError && <Alert type="error" message={reviewError}/>}
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs text-[var(--muted-foreground)]">
               {t('flashcards.position', { current: index + 1, total: cards.length })}

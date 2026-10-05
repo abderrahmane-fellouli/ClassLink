@@ -23,6 +23,7 @@ import {
   JoinClassScreen,
 } from './screens/StudentScreens'
 import { ProfileScreen } from './screens/ProfileScreen'
+import { StudentProgressScreen } from './screens/StudentProgressScreen'
 import {
   TeacherDashboard,
   TeacherRequestsScreen,
@@ -171,9 +172,9 @@ export const router = createBrowserRouter([
   {
     path: '/app/progression',
     element: (
-      <ProtectedRoute roles={['teacher']}>
+      <ProtectedRoute roles={['student', 'teacher']}>
         <AppShell>
-          <ClassProgressScreen/>
+          <RoleProgress/>
         </AppShell>
       </ProtectedRoute>
     ),
@@ -295,7 +296,21 @@ export const router = createBrowserRouter([
       <NotFoundScreen/>
     ),
   },
-])
+].map(route => ({ ...route, errorElement: <RouteErrorScreen/> })))
+
+function RouteErrorScreen() {
+  const { t } = useI18n()
+  return <div className="min-h-dvh flex items-center justify-center p-5">
+    <div className="ui-card bg-white border p-6 max-w-md space-y-4">
+      <h1 className="font-display text-xl font-semibold">{t('common.error')}</h1>
+      <p>{t('error.pageRecovery')}</p>
+      <div className="flex gap-2 flex-wrap">
+        <Btn onClick={() => window.location.reload()}>{t('common.retry')}</Btn>
+        <a href="/" className="inline-flex items-center min-h-11 px-3 text-[var(--primary)]">{t('notFound.home')}</a>
+      </div>
+    </div>
+  </div>
+}
 
 function NotFoundScreen() {
   const { t } = useI18n()
@@ -324,6 +339,11 @@ function RoleHome() {
 function RoleClasses() {
   const { role } = useAuth()
   return role === 'teacher' ? <TeacherDashboard/> : <MyClassesScreen/>
+}
+
+function RoleProgress() {
+  const { role } = useAuth()
+  return role === 'student' ? <StudentProgressScreen/> : <ClassProgressScreen/>
 }
 
 function TeacherClassRedirect() {

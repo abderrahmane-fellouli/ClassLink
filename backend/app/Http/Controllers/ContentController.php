@@ -24,6 +24,16 @@ class ContentController extends Controller
         private readonly NotificationService $notifications,
     ) {}
 
+    /** SCRUM-42: pinned/newest announcements from the student's accepted active classes. */
+    public function myAnnouncements(Request $request): JsonResponse
+    {
+        $classes = $request->user()->acceptedClassrooms()->where('status', 'active')->select('id');
+        $announcements = \App\Models\Announcement::whereIn('classroom_id', $classes)
+            ->with(['author:id,display_name', 'classroom:id,name'])
+            ->orderByDesc('pinned')->orderByDesc('created_at')->orderByDesc('id')->limit(20)->get();
+        return response()->json(['data' => AnnouncementResource::collection($announcements)]);
+    }
+
     // -------------------------------------------------------------------------
     // Ressources — F-CON-01 à F-CON-03
     // -------------------------------------------------------------------------

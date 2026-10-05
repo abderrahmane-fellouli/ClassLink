@@ -38,8 +38,14 @@ account deployment or real secrets were created.
 ## Actual Local Results
 
 Windows host: PHP 8.5.1, Node 22.20.0, Composer, Git Bash. Target image/CI uses
-PHP 8.3. Docker, native PostgreSQL clients, `pdo_pgsql`, `pcntl`, ShellCheck and
-k6 were not available on the delivery host.
+PHP 8.4 (`Dockerfile` `php:8.4-fpm-alpine`, CI `php-version: '8.4'`; the 8.4.1 floor
+comes from the locked Symfony 8.1 packages). Docker, native PostgreSQL clients,
+`pdo_pgsql`, `pcntl`, ShellCheck and k6 were not available on the delivery host.
+
+> The table below is a snapshot from an earlier pass. The current measured totals are
+> in [`LOCAL_POLISH_REPORT.md`](LOCAL_POLISH_REPORT.md) (500 backend tests /
+> 1770 assertions, 87 frontend tests, 30 Playwright tests) together with the list of
+> checks that only CI can perform.
 
 | Command / Check | Actual result |
 |---|---|

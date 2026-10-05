@@ -20,6 +20,27 @@ use Tests\TestCase;
  */
 class ApiContractTest extends TestCase
 {
+    public function test_admin_users_returns_flat_array_and_pagination_metadata(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $response = $this->actingAs($admin)->getJson('/api/admin/users')->assertOk();
+        $this->assertIsArray($response->json('data'));
+        $this->assertTrue(array_is_list($response->json('data')));
+        $response->assertJsonPath('data.0.id', $admin->id)->assertJsonPath('meta.total', 1);
+    }
+
+    public function test_student_class_list_contains_actual_membership_status(): void
+    {
+        [$classroom, $teacher, $student] = $this->classWithMember();
+        $this->actingAs($student)->getJson('/api/classes')->assertOk()
+            ->assertJsonPath('data.0.id', $classroom->id)
+            ->assertJsonPath('data.0.membership.status', 'accepted')
+            ->assertJsonPath('data.0.members_count', 1);
+        $student->memberships()->update(['status' => 'pending']);
+        $this->getJson('/api/classes')->assertOk()->assertJsonPath('data.0.membership.status', 'pending')
+            ->assertJsonPath('data.0.members_count', 0);
+    }
+
     use RefreshDatabase;
 
     /**

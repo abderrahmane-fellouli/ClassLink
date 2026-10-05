@@ -42,6 +42,10 @@ return [
             'host' => env('MAIL_HOST', '127.0.0.1'),
             'port' => env('MAIL_PORT', 2525),
             'encryption' => env('MAIL_ENCRYPTION', 'tls'),
+            // Laravel 12 passes Symfony DSN options; the legacy encryption
+            // key alone does not require STARTTLS. Preserve the existing env.
+            'scheme' => env('MAIL_ENCRYPTION') === 'ssl' ? 'smtps' : null,
+            'require_tls' => env('MAIL_ENCRYPTION', 'tls') === 'tls',
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
             'timeout' => 30,

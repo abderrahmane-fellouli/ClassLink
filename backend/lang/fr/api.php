@@ -12,6 +12,28 @@
 */
 
 return [
+    'digest' => [
+        'subject' => 'ClassLink — résumé du jour',
+        'heading' => 'Vos actualités ClassLink :',
+        'types' => [
+            'join_requested' => 'Demande d’adhésion', 'membership_accepted' => 'Adhésion acceptée',
+            'membership_rejected' => 'Adhésion refusée', 'membership_removed' => 'Adhésion supprimée',
+            'quiz_published' => 'Nouveau quiz', 'graded' => 'Devoir noté',
+            'partner_request_received' => 'Demande de partenaire', 'partner_request_answered' => 'Réponse du partenaire',
+            'ai_job_finished' => 'Actualité de génération IA', 'announcement_published' => 'Annonce',
+            'assignment_published' => 'Nouveau devoir',
+        ],
+    ],
+    'otp' => [
+        'invalid' => 'Code invalide ou expiré.',
+        'expired' => 'Code expiré.',
+        'attempts_exhausted' => 'Nombre maximal de tentatives atteint.',
+        'account_denied' => 'Ce compte n’est pas autorisé à accéder à ClassLink.',
+        'sent' => 'Si cette adresse est autorisée, un code de connexion a été envoyé.',
+        'delivery_failed' => 'L’email de connexion n’a pas pu être envoyé. Réessayez plus tard.',
+        'email_subject' => 'Votre code de connexion ClassLink',
+        'email_body' => "Votre code ClassLink est : :code\n\nIl est valable :minutes minutes. Vous avez droit à 5 essais.\nSi vous n’avez pas demandé ce code, ignorez ce message.",
+    ],
 
     'errors' => [
         'invalid_data' => 'Données invalides.',

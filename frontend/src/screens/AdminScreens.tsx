@@ -202,9 +202,10 @@ export function AdminUsersScreen() {
                     <p className="font-medium">{user.display_name}</p>
                     {/* L'email n'est visible que dans l'administration (RG-18). */}
                     <p className="text-xs text-[var(--muted-foreground)]">{user.email}</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">{t(user.verification_source === 'microsoft' ? 'auth.sourceMicrosoft' : 'auth.sourceUnverified')}</p>
                   </td>
                   <td className="px-4 py-3">
-                    {user.role_locked && <Badge label={t(`role.${user.role}` as 'role.admin')} color="purple"/>}
+                    {user.role_locked && <Badge label={user.role === 'teacher' ? t('auth.approvedTeacher') : t(`role.${user.role}` as 'role.admin')} color="purple"/>}
                       <select
                         value={user.role}
                         onChange={event => void changeRole(user.id, event.target.value)}
@@ -243,7 +244,17 @@ export function AdminUsersScreen() {
       <section className="mt-6">
         <h2 className="font-display text-xl mb-3">{t('admin.stat.pendingRoles')}</h2>
         <AsyncBoundary loading={pendingUsers.loading} error={pendingUsers.error} onRetry={pendingUsers.reload} errorMessage={t('common.error')} isEmpty={!pendingUsers.data?.data.length} empty={<EmptyState message={t('admin.users.empty')}/>}>
-          {(pendingUsers.data?.data ?? []).map(user => <Card key={user.id} className="p-4 flex flex-wrap items-center gap-3 mb-2"><p className="flex-1">{user.display_name}</p>{(['student', 'teacher'] as const).map(nextRole => <ConfirmButton key={nextRole} size="sm" disabled={update.pending} onClick={() => void changeRole(user.id, nextRole).then(pendingUsers.reload)}>{t(`role.${nextRole}`)}</ConfirmButton>)}</Card>)}
+          {(pendingUsers.data?.data ?? []).map(user => <Card key={user.id} className="p-4 flex flex-wrap items-center gap-3 mb-2">
+            <div className="flex-1 min-w-0 space-y-1">
+              <p className="font-medium">{user.display_name}</p>
+              <p className="text-xs break-all text-[var(--muted-foreground)]">{user.email}</p>
+              <p className="text-xs">{t(user.role_candidate === 'teacher' ? 'auth.teacherCandidate' : user.role_candidate === 'student' ? 'auth.studentCandidate' : 'role.pending')}</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{t(user.verification_source === 'microsoft' ? 'auth.sourceMicrosoft' : 'auth.sourceUnverified')}</p>
+              <Badge label={t(user.is_active === false ? 'auth.accountRejected' : 'role.pending')} color={user.is_active === false ? 'red' : 'orange'}/>
+            </div>
+            {(['student', 'teacher'] as const).map(nextRole => <ConfirmButton key={nextRole} size="sm" disabled={update.pending || user.is_active === false} onClick={() => void changeRole(user.id, nextRole).then(pendingUsers.reload)}>{t(`role.${nextRole}`)}</ConfirmButton>)}
+            <ConfirmButton variant="danger" size="sm" disabled={update.pending || user.is_active === false} onClick={() => void toggleActive(user.id, true).then(pendingUsers.reload)}>{t('auth.rejectCandidate')}</ConfirmButton>
+          </Card>)}
         </AsyncBoundary>
       </section>
 
@@ -473,7 +484,7 @@ const AUDIT_FILTERS = [
   { value: '', key: 'admin.audit.filter.all' },
   { value: 'auth', key: 'admin.audit.filter.auth' },
   { value: 'quiz', key: 'admin.audit.filter.quiz' },
-  { value: 'classroom', key: 'admin.audit.filter.class' },
+  { value: 'class', key: 'admin.audit.filter.class' },
   { value: 'ai', key: 'admin.audit.filter.ai' },
   { value: 'user', key: 'admin.audit.filter.user' },
 ] as const

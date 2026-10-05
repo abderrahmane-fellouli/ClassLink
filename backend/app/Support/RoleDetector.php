@@ -4,70 +4,44 @@ namespace App\Support;
 
 use App\Enums\Role;
 
-/**
- * §17.5 — Détection du rôle (premier code métier, à lire tel quel).
- *
- * La logique est volontairement identique à l'extrait de référence fourni
- * dans le cahier des charges ; seule la lecture des motifs depuis
- * config/classlink.php a été ajoutée pour les rendre configurables
- * (aucune liste d'enseignants, aucun suffixe inventé).
- *
- * Sécurité : cette classe est le SEUL endroit où un rôle est calculé. Elle
- * n'est jamais appelée avec une valeur fournie par le navigateur
- * (§16 « Élévation de rôle »).
- */
+/** Account classification is not proof of Microsoft identity. Never infer birth dates. */
 class RoleDetector
 {
-    public static function fromEmail(string $email): string
+    public static function normalizeOfpptAddress(string $email): ?string
     {
+        if (preg_match('/[\r\n\x00]/', $email)) {
+            return null;
+        }
         $email = strtolower(trim($email));
-        $domain = '@'.config('classlink.role_detection.domain');
-
-        // 1. RG-01 : tout autre domaine est refusé.
-        if (! str_ends_with($email, $domain)) {
-            return Role::Denied->value;
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL) || substr_count($email, '@') !== 1) {
+            return null;
         }
+        [$local, $domain] = explode('@', $email, 2);
 
-        $local = substr($email, 0, -strlen($domain));
-
-        // Garde-fou : partie locale mal formée.
-        if ($local === '' || preg_match(config('classlink.role_detection.denied_local_regex'), $local)) {
-            return Role::Denied->value;
-        }
-
-        // 2. RG-02 : exactement 13 chiffres -> étudiant.
-        if (preg_match(config('classlink.role_detection.student_local_regex'), $local)) {
-            return Role::Student->value;
-        }
-
-        // 3. RG-02 : motif enseignant -> enseignant.
-        if (preg_match(config('classlink.role_detection.teacher_local_regex'), $local)) {
-            return Role::Teacher->value;
-        }
-
-        // 4. Domaine valide, format inconnu -> en attente de validation.
-        return Role::Pending->value;
+        // Exact approved domain; no suffix, wildcard, or lookalike matching.
+        return $domain === 'ofppt-edu.ma' && $local !== '' ? $email : null;
     }
 
-    /**
-     * Rôle applicable à un compte existant.
-     *
-     * RG-03 : si le rôle a été verrouillé par le super admin, il n'est plus
-     * recalculé. §17.6 : un rôle « pending » ne doit jamais écraser un rôle
-     * déjà attribué.
-     */
+    public static function fromEmail(string $email): string
+    {
+        $email = self::normalizeOfpptAddress($email);
+        if ($email === null) {
+            return Role::Denied->value;
+        }
+        $local = explode('@', $email, 2)[0];
+
+        // Observed convention, not an official guarantee or date/length parser.
+        return preg_match('/^[0-9]+$/D', $local) ? Role::Student->value : Role::Pending->value;
+    }
+
     public static function resolveFor(string $email, bool $roleLocked, ?string $currentRole): string
     {
         $detected = self::fromEmail($email);
-
-        if ($roleLocked) {
-            return $currentRole ?? $detected;
+        if ($detected === Role::Denied->value) {
+            return $detected;
         }
 
-        if ($detected === Role::Pending->value) {
-            return $currentRole ?? $detected;
-        }
-
-        return $detected;
+        // Only an explicitly approved role survives candidate reclassification.
+        return $roleLocked ? ($currentRole ?? $detected) : $detected;
     }
 }

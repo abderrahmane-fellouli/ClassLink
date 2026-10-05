@@ -10,6 +10,7 @@ use App\Http\Resources\MembershipResource;
 use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\Membership;
+use App\Models\User;
 use App\Services\JoinCodeService;
 use App\Services\MembershipService;
 use Illuminate\Http\JsonResponse;
@@ -35,11 +36,11 @@ class ClassroomController extends Controller
 
         if ($user->isTeacher()) {
             $classes = Classroom::where('teacher_id', $user->id)
-                ->withCount('memberships')
+                ->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])
                 ->latest()
                 ->get();
         } elseif ($user->isAdmin()) {
-            $classes = Classroom::withCount('memberships')->latest()->get();
+            $classes = Classroom::withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])->latest()->get();
         } else {
             // RG-05 : un étudiant ne voit que ses classes acceptées,
             // plus celles où sa demande est en attente.
@@ -47,8 +48,12 @@ class ClassroomController extends Controller
                 ->whereIn('status', [MembershipStatus::Accepted->value, MembershipStatus::Pending->value])
                 ->select('classroom_id'))
                 ->with('teacher')
-                ->withCount('memberships')
+                ->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])
                 ->get();
+            $membershipStatuses = $user->memberships()->pluck('status', 'classroom_id');
+            foreach ($classes as $classroom) {
+                $classroom->setAttribute('membership_status', $membershipStatuses->get($classroom->id));
+            }
         }
 
         if ($status !== 'all') {
@@ -191,7 +196,7 @@ class ClassroomController extends Controller
     {
         $this->authorize('removeMember', $classroom);
 
-        $student = \App\Models\User::findOrFail($studentId);
+        $student = User::findOrFail($studentId);
 
         $this->memberships->remove($request->user(), $classroom, $student);
 
@@ -268,6 +273,7 @@ class ClassroomController extends Controller
                 $number++;
                 if (count($line) !== count($header)) {
                     $errors[] = ['row' => $number, 'reason' => 'column_count'];
+
                     continue;
                 }
                 $row = array_combine($header, $line);

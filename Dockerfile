@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM php:8.3-fpm-alpine AS base
+FROM php:8.4-fpm-alpine AS base
 RUN apk add --no-cache nginx bash tini curl icu-libs libzip libpq sqlite-libs oniguruma \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS icu-dev libzip-dev postgresql-dev sqlite-dev oniguruma-dev \
     && docker-php-ext-install -j"$(nproc)" bcmath intl mbstring opcache pcntl pdo_pgsql pdo_mysql pdo_sqlite zip \
@@ -9,6 +9,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 FROM base AS vendor
 COPY backend/composer.json backend/composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-interaction
+RUN composer check-platform-reqs --no-dev
 FROM base AS app
 COPY backend/ ./
 COPY --from=vendor /app/vendor ./vendor

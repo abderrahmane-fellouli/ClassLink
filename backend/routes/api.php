@@ -49,6 +49,8 @@ Route::middleware('locale')->group(function () {
     Route::get('/auth/microsoft/redirect', [AuthController::class, 'redirect'])
         ->middleware('throttle:'.config('classlink.throttle.oauth_redirect'));
 
+    Route::post('/auth/microsoft/pending-verification', [AuthController::class, 'pendingVerification'])
+        ->middleware('throttle:'.config('classlink.throttle.oauth_redirect'));
     Route::get('/auth/microsoft/callback', [AuthController::class, 'callback'])
         ->middleware('throttle:'.config('classlink.throttle.oauth_redirect'));
 
@@ -100,6 +102,7 @@ Route::middleware(['auth:sanctum', 'active', 'locale'])->group(function () {
 
     // --- 12.1 Profil ------------------------------------------------------
     Route::get('/me', [ProfileController::class, 'show']);
+    Route::get('/me/announcements', [ContentController::class, 'myAnnouncements'])->middleware('role:student');
     Route::patch('/me', [ProfileController::class, 'update']);
     Route::delete('/me/sessions', [ProfileController::class, 'destroySessions']);
 
@@ -150,6 +153,7 @@ Route::middleware(['auth:sanctum', 'active', 'locale'])->group(function () {
     Route::post('/classes/{classroom}/quizzes', [QuizController::class, 'store']);
 
     Route::get('/quizzes/{quiz}', [QuizController::class, 'show']);
+    Route::get('/quizzes/{quiz}/editor', [QuizController::class, 'openEditor']);
     Route::patch('/quizzes/{quiz}', [QuizController::class, 'update']);
     Route::delete('/quizzes/{quiz}', [QuizController::class, 'destroy']);
     Route::post('/quizzes/{quiz}/publish', [QuizController::class, 'publish']);

@@ -35,6 +35,8 @@ class Quiz extends Model
         return [
             'reviewed' => 'boolean',
             'reviewed_at' => 'datetime',
+            'editor_opened_at' => 'datetime',
+            'editor_opened_by' => 'integer',
             'shuffle' => 'boolean',
             'show_answers' => 'boolean',
             'published_at' => 'datetime',
@@ -87,9 +89,24 @@ class Quiz extends Model
      * RG-11 / F-IA-03 : « Un quiz généré par l'IA ne peut être publié
      * qu'après relecture par l'enseignant. »
      */
-    public function canBePublished(): bool
+    public function canBePublished(?\App\Models\User $viewer = null): bool
     {
-        return ! $this->isAiGenerated() || ($this->reviewed && $this->reviewed_at !== null);
+        return ! $this->isAiGenerated() || ($this->reviewed && $this->reviewed_at !== null
+            && $this->openedBy($viewer ?? auth()->user()));
+    }
+
+    public function openedBy(?\App\Models\User $viewer): bool
+    {
+        return $viewer && $this->editor_opened_at !== null && $this->editor_opened_by === $viewer->id;
+    }
+
+    public function recordEditorOpening(\App\Models\User $viewer): void
+    {
+        if ($this->openedBy($viewer)) return;
+        $this->forceFill([
+            'editor_opened_at' => now(), 'editor_opened_by' => $viewer->id,
+            'reviewed' => false, 'reviewed_at' => null,
+        ])->save();
     }
 
     /**

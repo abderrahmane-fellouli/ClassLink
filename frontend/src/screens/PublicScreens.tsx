@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
@@ -6,7 +6,7 @@ import { auth as authApi } from '../lib/endpoints'
 import { errorMessage } from '../lib/api'
 import { Btn, ConfirmButton, Icons, Input, Alert, LocaleSwitch } from '../components/UI'
 
-const AUTH_DOMAINS = ['ofppt-edu.ma', 'ofppt.ma']
+const AUTH_DOMAINS = ['ofppt-edu.ma']
 
 /* ══ Marque + pied de page publics ══════════════════════════════════ */
 
@@ -14,12 +14,12 @@ function PublicNav({ right }: { right?: ReactNode }) {
   const { t, locale, setLocale } = useI18n()
   return (
     <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-[var(--border)]">
-      <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-3 sm:px-5 md:px-8 h-16 flex items-center justify-between gap-2">
         <Link to="/" className="flex items-center gap-2.5">
           <Icons.Logo/>
-          <span className="font-display text-lg font-semibold">{t('common.appName')}</span>
+          <span className="hidden min-[375px]:inline font-display text-lg font-semibold">{t('common.appName')}</span>
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <LocaleSwitch light locale={locale} onChange={setLocale}/>
           <span className="hidden sm:block text-xs text-[var(--muted-foreground)]">v1.0 · OFPPT</span>
           {right ?? <Btn onClick={() => { window.location.href = '/login' }}>{t('home.login')}</Btn>}
@@ -447,9 +447,20 @@ export function LoginScreen() {
 /* ══ Rôle en attente de validation ═════════════════════════════════ */
 
 export function PendingScreen() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { signOut } = useAuth()
   const navigate = useNavigate()
+  const [verification, setVerification] = useState<Awaited<ReturnType<typeof authApi.microsoftPendingVerification>> | null>(null)
+  const started = useRef(false)
+  useEffect(() => {
+    if (started.current) return
+    started.current = true
+    const receipt = new URLSearchParams(window.location.hash.slice(1)).get('verification')
+    window.history.replaceState(window.history.state, '', window.location.pathname)
+    if (receipt) {
+      void authApi.microsoftPendingVerification(receipt, { locale }).then(setVerification).catch(() => setVerification(null))
+    }
+  }, [locale])
 
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-5 text-center" style={{ background: 'var(--background)' }}>
@@ -458,8 +469,13 @@ export function PendingScreen() {
         <Icons.Clock/>
       </div>
       <h1 className="font-display text-3xl font-semibold mb-3">{t('role.pending')}</h1>
-      <p className="text-[var(--muted-foreground)] max-w-sm mb-8 leading-relaxed">{t('denied.step2')}</p>
-      <ConfirmButton variant="secondary" onClick={() => void signOut().then(() => navigate('/login', { replace: true }))}>
+      <p className="text-[var(--muted-foreground)] max-w-sm mb-8 leading-relaxed">{t(
+        verification?.status === 'denied' ? 'auth.accountRejected'
+          : verification?.status === 'approved' ? 'auth.accountApproved'
+            : verification?.role_candidate === 'teacher' && verification.verification_source === 'microsoft' ? 'auth.teacherVerifiedPending'
+              : 'auth.pendingGeneric',
+      )}</p>
+      <ConfirmButton variant="secondary" onClick={() => { navigate('/', { replace: true }); void signOut() }}>
         {t('nav.logout')}
       </ConfirmButton>
     </div>
@@ -474,19 +490,25 @@ export function MicrosoftCallbackScreen() {
   const { adoptCallbackToken } = useAuth()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
+  const started = useRef(false)
 
   useEffect(() => {
-    const controller = new AbortController()
+    if (started.current) return
+    started.current = true
+    const params = new URLSearchParams(window.location.hash.slice(1))
+    const incoming = params.get('token')
+    const providerError = params.get('error')
+    // Remove credentials BEFORE any asynchronous request and preserve router state.
+    window.history.replaceState(window.history.state, '', window.location.pathname)
 
     void (async () => {
-      const match = window.location.hash.match(/token=([^&]+)/)
-      if (!match) {
-        navigate('/login', { replace: true })
+      if (!incoming) {
+        setError(t(providerError ? 'login.microsoftError' : 'login.callbackMissing'))
         return
       }
 
       try {
-        const user = await adoptCallbackToken(decodeURIComponent(match[1]))
+        const user = await adoptCallbackToken(incoming)
         if (user) {
           navigate('/app', { replace: true })
           return
@@ -494,14 +516,8 @@ export function MicrosoftCallbackScreen() {
         setError(t('error.unknown'))
       } catch (cause) {
         setError(errorMessage(cause, t('error.unknown')))
-      } finally {
-        // Le fragment est purgé : le jeton ne reste jamais dans l'historique.
-        window.history.replaceState(null, '', window.location.pathname)
-        controller.abort()
       }
     })()
-
-    return () => controller.abort()
   }, [adoptCallbackToken, navigate, t])
 
   return (
@@ -509,6 +525,7 @@ export function MicrosoftCallbackScreen() {
       {error ? (
         <div className="max-w-sm w-full px-5">
           <Alert message={error} type="error"/>
+          <Link to="/login" className="inline-flex items-center min-h-11 mt-4 text-[var(--primary)]">{t('common.back')}</Link>
         </div>
       ) : (
         <p className="text-sm text-[var(--muted-foreground)]">{t('common.loading')}</p>

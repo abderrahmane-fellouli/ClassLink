@@ -4,8 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
+use Laravel\Socialite\Contracts\Factory;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Mockery;
+use Socialite\Facades\Socialite;
 use Tests\TestCase;
 
 /**
@@ -33,7 +37,7 @@ class MicrosoftRedirectTest extends TestCase
             'services.azure.client_id' => 'fake-client-id',
             'services.azure.client_secret' => 'fake-secret',
             'services.azure.redirect' => 'https://api.classlink.test/api/auth/microsoft/callback',
-            'services.azure.tenant' => 'fake-tenant',
+            'services.azure.tenant' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         ]);
     }
 
@@ -48,7 +52,77 @@ class MicrosoftRedirectTest extends TestCase
     private function microsoftReturns(string $email, ?string $name = 'Zakariae Chergui'): void
     {
         \Laravel\Socialite\Facades\Socialite::shouldReceive('driver->stateless->user')
-            ->andReturn((new SocialiteUser)->map(['email' => $email, 'name' => $name]));
+            ->andReturn((new SocialiteUser)->map(['id' => 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'email' => $email, 'name' => $name]));
+    }
+
+    private function callbackResponse()
+    {
+        $state = Str::random(64);
+        Cache::put('oauth-state:'.hash('sha256', $state), true, now()->addMinutes(10));
+
+        return $this->withUnencryptedCookie('classlink_oauth_state', $state)
+            ->get('/api/auth/microsoft/callback?state='.$state);
+    }
+
+    public function test_callback_without_browser_state_cannot_issue_a_token(): void
+    {
+        $this->get('/api/auth/microsoft/callback?code=untrusted')
+            ->assertRedirect('https://app.classlink.test/auth/microsoft/callback#error=invalid_state');
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_state_is_browser_bound_and_single_use(): void
+    {
+        $state = Str::random(64);
+        Cache::put('oauth-state:'.hash('sha256', $state), true, now()->addMinutes(10));
+        $this->withUnencryptedCookie('classlink_oauth_state', Str::random(64))
+            ->get('/api/auth/microsoft/callback?state='.$state)
+            ->assertRedirectContains('#error=invalid_state');
+        $this->microsoftReturns('2007031400094@ofppt-edu.ma');
+        $this->withUnencryptedCookie('classlink_oauth_state', $state)
+            ->get('/api/auth/microsoft/callback?state='.$state)->assertRedirectContains('#token=');
+        $this->get('/api/auth/microsoft/callback?state='.$state)->assertRedirectContains('#error=invalid_state');
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+    }
+
+    public function test_provider_failure_returns_recoverable_frontend_error(): void
+    {
+        $state = Str::random(64);
+        Cache::put('oauth-state:'.hash('sha256', $state), true, now()->addMinutes(10));
+        \Laravel\Socialite\Facades\Socialite::shouldReceive('driver->stateless->user')
+            ->andThrow(new \RuntimeException('Provider secret must not leak'));
+        $this->withUnencryptedCookie('classlink_oauth_state', $state)
+            ->get('/api/auth/microsoft/callback?state='.$state)
+            ->assertRedirect('https://app.classlink.test/auth/microsoft/callback#error=microsoft_unavailable');
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_real_redirect_includes_state_graph_scope_and_secure_cookie(): void
+    {
+        $response = $this->get('https://api.classlink.test/api/auth/microsoft/redirect');
+        parse_str(parse_url($response->headers->get('Location'), PHP_URL_QUERY), $query);
+        $this->assertSame(64, strlen($query['state']));
+        $this->assertStringContainsString('User.Read', $query['scope']);
+        $this->assertSame(config('services.azure.redirect'), $query['redirect_uri']);
+        $cookie = collect($response->headers->getCookies())->first();
+        $this->assertTrue($cookie->isHttpOnly());
+        $this->assertTrue($cookie->isSecure());
+        $this->assertSame('lax', $cookie->getSameSite());
+    }
+
+    public function test_organizational_multitenant_authorization_url_keeps_callback_and_state_protection(): void
+    {
+        config(['services.azure.tenant' => 'organizations', 'services.azure.redirect' => 'http://localhost:8000/api/auth/microsoft/callback']);
+        $response = $this->get('/api/auth/microsoft/redirect');
+        $url = $response->headers->get('Location');
+        $this->assertSame('/organizations/oauth2/v2.0/authorize', parse_url($url, PHP_URL_PATH));
+        parse_str(parse_url($url, PHP_URL_QUERY), $query);
+        $this->assertSame('http://localhost:8000/api/auth/microsoft/callback', $query['redirect_uri']);
+        $this->assertSame(64, strlen($query['state']));
+        $this->assertStringContainsString('User.Read', $query['scope']);
+        $cookie = collect($response->headers->getCookies())->first();
+        $this->assertTrue($cookie->isHttpOnly());
+        $this->assertSame('lax', $cookie->getSameSite());
     }
 
     public function test_frontend_routes_match_the_spa_router(): void
@@ -60,9 +134,10 @@ class MicrosoftRedirectTest extends TestCase
 
     public function test_a_teacher_landing_receives_the_token_in_the_fragment(): void
     {
+        User::factory()->teacher()->create(['email' => 'zakariyae.chergui@ofppt-edu.ma']);
         $this->microsoftReturns('zakariyae.chergui@ofppt-edu.ma');
 
-        $response = $this->get('/api/auth/microsoft/callback');
+        $response = $this->callbackResponse();
 
         $this->assertStringStartsWith(
             'https://app.classlink.test/auth/microsoft/callback#token=',
@@ -78,7 +153,7 @@ class MicrosoftRedirectTest extends TestCase
     {
         $this->microsoftReturns('2007031400094@ofppt-edu.ma');
 
-        $target = $this->get('/api/auth/microsoft/callback')->headers->get('Location');
+        $target = $this->callbackResponse()->headers->get('Location');
 
         $this->assertStringContainsString('#token=', (string) $target);
         $this->assertStringNotContainsString('?token=', (string) $target);
@@ -88,7 +163,7 @@ class MicrosoftRedirectTest extends TestCase
     {
         $this->microsoftReturns('x@gmail.com');
 
-        $response = $this->get('/api/auth/microsoft/callback');
+        $response = $this->callbackResponse();
 
         $response->assertRedirect('https://app.classlink.test/denied');
         $this->assertDatabaseMissing('users', ['email' => 'x@gmail.com']);
@@ -99,9 +174,9 @@ class MicrosoftRedirectTest extends TestCase
         // §17.6 B : format inconnu -> « Compte en attente de validation ».
         $this->microsoftReturns('abc123@ofppt-edu.ma');
 
-        $response = $this->get('/api/auth/microsoft/callback');
+        $response = $this->callbackResponse();
 
-        $response->assertRedirect('https://app.classlink.test/pending');
+        $response->assertRedirectContains('https://app.classlink.test/pending#verification=');
         $this->assertDatabaseHas('users', [
             'email' => 'abc123@ofppt-edu.ma',
             'role' => 'pending',
@@ -112,7 +187,7 @@ class MicrosoftRedirectTest extends TestCase
     {
         $this->microsoftReturns('abc123@ofppt-edu.ma');
 
-        $this->get('/api/auth/microsoft/callback');
+        $this->callbackResponse();
 
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
@@ -126,7 +201,7 @@ class MicrosoftRedirectTest extends TestCase
 
         $this->microsoftReturns('hamza.bouzid@ofppt-edu.ma');
 
-        $this->get('/api/auth/microsoft/callback')
+        $this->callbackResponse()
             ->assertRedirect('https://app.classlink.test/denied');
 
         $this->assertDatabaseCount('personal_access_tokens', 0);
@@ -143,7 +218,7 @@ class MicrosoftRedirectTest extends TestCase
 
         $this->microsoftReturns('2007031400094@ofppt-edu.ma');
 
-        $this->get('/api/auth/microsoft/callback')
+        $this->callbackResponse()
             ->assertRedirectContains('https://app.classlink.test/auth/microsoft/callback#token=');
 
         $this->assertSame('teacher', User::where('email', '2007031400094@ofppt-edu.ma')->value('role'));
@@ -151,9 +226,9 @@ class MicrosoftRedirectTest extends TestCase
 
     public function test_the_login_is_written_to_the_audit_log(): void
     {
-        $this->microsoftReturns('zakariyae.chergui@ofppt-edu.ma');
+        $this->microsoftReturns('2007031400094@ofppt-edu.ma');
 
-        $this->get('/api/auth/microsoft/callback');
+        $this->callbackResponse();
 
         $this->assertDatabaseHas('audit_logs', ['action' => 'auth.login']);
     }
@@ -164,7 +239,7 @@ class MicrosoftRedirectTest extends TestCase
 
         $this->microsoftReturns('x@gmail.com');
 
-        $this->get('/api/auth/microsoft/callback')
+        $this->callbackResponse()
             ->assertRedirect('https://app.classlink.test/denied');
     }
 
@@ -173,8 +248,8 @@ class MicrosoftRedirectTest extends TestCase
         // Laravel 11 n'enregistre plus d'alias de classe : un `use` erroné
         // vers `Socialite\Facades\Socialite` fait echouer la connexion
         // Microsoft avant meme d'atteindre la detection de role.
-        $this->assertTrue(class_exists(\Socialite\Facades\Socialite::class) || class_exists(\Laravel\Socialite\Facades\Socialite::class));
-        $this->assertNotNull(app(\Laravel\Socialite\Contracts\Factory::class));
+        $this->assertTrue(class_exists(Socialite::class) || class_exists(\Laravel\Socialite\Facades\Socialite::class));
+        $this->assertNotNull(app(Factory::class));
     }
 
     public function test_cors_is_restricted_to_the_configured_frontend_origin(): void

@@ -5,6 +5,7 @@ import { ApiError, errorMessage, firstFieldError } from '../lib/api'
 import { ai, assignments, classrooms, content, flashcards, joinRequests, quizzes } from '../lib/endpoints'
 import { useAction, useAsync } from '../lib/useAsync'
 import { EditButton } from '../components/EditButton'
+import { CopyButton } from '../components/CopyButton'
 import type { ApiAiJob, ApiQuiz, ApiQuizResults, ApiSubmission, Locale } from '../lib/types'
 import {
   Alert,
@@ -639,23 +640,27 @@ function QuizzesTab({
 
   /* F-IA-02 : la tâche est asynchrone, l'UI suit son état sans bloquer. */
   useEffect(() => {
-    if (!job || (job.status !== 'queued' && job.status !== 'running')) return
-
-    const timer = window.setInterval(() => {
-      void ai
-        .job(job.id, { locale })
-        .then(next => {
-          setJob(next)
-          if (next.status === 'succeeded' || next.status === 'failed') {
-            window.clearInterval(timer)
-            onReload()
-          }
-        })
-        .catch(cause => { setAiError(errorMessage(cause, t('error.unknown'))); window.clearInterval(timer) })
+    if (!job || (job.status !== 'queued' && job.status !== 'processing')) return
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const next = await ai.job(job.id, { locale, signal: controller.signal })
+        if (!controller.signal.aborted) setJob(next)
+      } catch (cause) {
+        if (!controller.signal.aborted) setAiError(errorMessage(cause, t('error.unknown')))
+      }
     }, 3000)
-
-    return () => window.clearInterval(timer)
+    return () => { clearTimeout(timer); controller.abort() }
   }, [job, locale, onReload])
+
+  const terminalJob = useRef<number | null>(null)
+  useEffect(() => {
+    if (job && (job.status === 'done' || job.status === 'failed') && terminalJob.current !== job.id) {
+      terminalJob.current = job.id
+      onReload()
+      decks.reload()
+    }
+  }, [job, onReload, decks.reload])
 
   async function startGeneration() {
     if (!file) return
@@ -689,6 +694,7 @@ function QuizzesTab({
           <p className="text-sm font-semibold mb-3">{t('manage.aiGenerate')}</p>
 
           {aiError && <div className="mb-3"><Alert message={aiError} type="error"/></div>}
+          {(aiError || job?.status === 'failed') && <Link to={`/app/classes/${classroomId}/manage/quizzes/new`} className="inline-flex min-h-11 items-center text-[var(--primary)] mb-3">{t('aiQuiz.manualFallback')}</Link>}
 
           {job === null ? (
             <>
@@ -725,12 +731,12 @@ function QuizzesTab({
               <Alert message={t('aiQuiz.failed')} type="error"/>
               <Btn size="sm" variant="secondary" onClick={() => setJob(null)}>{t('common.retry')}</Btn>
             </div>
-          ) : job.status === 'succeeded' ? (
+          ) : job.status === 'done' ? (
             <Alert
               message={
                 job.target === 'quiz'
                   ? t('status.done')
-                  : t('aiQuiz.reviewed')
+                  : t('aiQuiz.generatedDraft')
               }
               type="success"
             />
@@ -738,7 +744,7 @@ function QuizzesTab({
             <div>
               <p className="text-sm font-medium mb-1">{t('aiQuiz.running')}</p>
               <p className="text-xs text-[var(--muted-foreground)] mb-3">{t('aiQuiz.runningBody')}</p>
-              <ProgressBar value={job.status === 'running' ? 60 : 20}/>
+              <ProgressBar value={job.status === 'processing' ? 60 : 20}/>
             </div>
           )}
         </Card>
@@ -1001,8 +1007,6 @@ function SettingsTab({
   const [code, setCode] = useState(joinCode ?? '')
   const [enabled, setEnabled] = useState(joinEnabled)
   const [confirmArchive, setConfirmArchive] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const copy = useAction()
   const regenerate = useAction()
   const toggle = useAction()
   const archive = useAction()
@@ -1015,12 +1019,11 @@ function SettingsTab({
   return (
     <div className="max-w-lg space-y-4">
       {classroom && !readOnly && <EditButton initial={{ name: classroom.name, subject: classroom.subject, group_label: classroom.group_label, school_year: classroom.school_year }} labels={{ name: t('createClass.name'), subject: t('createClass.subject'), group_label: t('createClass.group'), school_year: t('createClass.year') }} save={values => classrooms.update(classroomId, values, { locale })} onSaved={onChanged}/>}
-      {copy.error && <Alert type="error" message={t('common.error')}/>}
       <Card className="p-5">
         <p className="text-sm font-medium mb-1">{t('manage.settings.code')}</p>
-        <div className="flex items-center gap-3">
-          <p className="font-mono text-xl font-bold tracking-widest text-[var(--primary)] flex-1">{code}</p>
-          <Btn size="sm" variant="secondary" disabled={!code || copy.pending} onClick={() => void copy.run(async () => { await navigator.clipboard.writeText(code); setCopied(true) })}>{t(copied ? 'common.copied' : 'common.copy')}</Btn>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="font-mono text-xl font-bold tracking-widest text-[var(--primary)] w-full sm:w-auto sm:flex-1">{code}</p>
+          <CopyButton value={code}/>
           {!readOnly && (
             <Btn
               size="sm"
@@ -1044,16 +1047,17 @@ function SettingsTab({
         <Toggle
           checked={enabled}
           onChange={value => {
-            setEnabled(value)
             if (readOnly) return
             void toggle.run(async () => {
               await classrooms.toggleCode(classroomId, { locale })
+              setEnabled(value)
               onChanged()
             })
           }}
           label={t('manage.settings.joinOpen')}
           disabled={readOnly || toggle.pending}
         />
+        {toggle.error && <Alert type="error" message={errorMessage(toggle.error, t('error.unknown'))}/>}
         <p className="text-xs text-[var(--muted-foreground)] mt-1.5">{t('manage.settings.joinOpenHint')}</p>
       </Card>
 
@@ -1126,7 +1130,7 @@ export function QuizEditorScreen() {
   const save = useAction()
   const deletedQuestions = useRef(new Set<number>())
   const createdDraft = useRef<ApiQuiz | null>(null)
-  const existing = useAsync(signal => quizId ? quizzes.showForTeacher(quizId, { signal }) : Promise.resolve(null), [quizId])
+  const existing = useAsync(signal => quizId ? quizzes.openEditor(quizId, { signal }) : Promise.resolve(null), [quizId])
   useEffect(() => {
     const quiz = existing.data
     if (!quiz) return

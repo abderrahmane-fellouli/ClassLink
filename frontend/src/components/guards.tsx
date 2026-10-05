@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ConfirmButton, Card, Icons } from './UI'
 import { useI18n } from '../i18n'
@@ -55,6 +55,7 @@ export function ProtectedRoute({ children, roles }: { children: ReactNode; roles
 export function AccessDeniedScreen() {
   const { signOut } = useAuth()
   const { t } = useI18n()
+  const navigate = useNavigate()
   return (
     <div className="min-h-dvh flex items-center justify-center bg-[var(--background)] p-5">
       <Card className="max-w-md w-full p-8 text-center">
@@ -66,12 +67,12 @@ export function AccessDeniedScreen() {
         </div>
         <h1 className="font-display text-xl font-semibold mb-2">{t('denied.title')}</h1>
         <p className="text-sm text-[var(--muted-foreground)] mb-6">
-          {t('denied.step1')}
+          {t('auth.ofpptRequired')}
         </p>
         <p className="text-xs text-[var(--muted-foreground)] mb-6">
           {t('denied.step2')}
         </p>
-        <ConfirmButton variant="secondary" full onClick={() => void signOut()}>
+        <ConfirmButton variant="secondary" full onClick={() => { navigate('/', { replace: true }); void signOut() }}>
           {t('nav.logout')}
         </ConfirmButton>
       </Card>

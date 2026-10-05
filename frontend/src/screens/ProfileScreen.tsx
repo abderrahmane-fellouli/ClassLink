@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n'
 import { errorMessage } from '../lib/api'
@@ -9,6 +10,7 @@ import type { Locale } from '../lib/types'
 import { Alert, AsyncBoundary, Avatar, Btn, ConfirmButton, Card, EmptyState, Input, PageHeader, Tabs, Toggle } from '../components/UI'
 
 export function ProfileScreen() {
+  const navigate = useNavigate()
   const { user, updateProfile, signOut } = useAuth()
   const { t, locale, setLocale, formatDate, formatRelative } = useI18n()
   const [tab, setTab] = useState<'profile' | 'notifications' | 'security'>('profile')
@@ -17,6 +19,7 @@ export function ProfileScreen() {
 
   const notifs = useAsync(signal => notifications.list({ signal }), [])
   const saveProfile = useAction()
+  const saveLanguage = useAction()
   const revokeSessions = useAction()
   const prefs = useAsync(signal => notifications.preferences({ signal, locale }), [locale])
   const savePrefs = useAction()
@@ -32,7 +35,7 @@ export function ProfileScreen() {
   }
 
   async function revoke() {
-    await revokeSessions.run(async () => { await profile.destroySessions({ locale }); await signOut() })
+    await revokeSessions.run(async () => { await profile.destroySessions({ locale }); await signOut(); navigate('/', { replace: true }) })
   }
 
   return (
@@ -76,12 +79,15 @@ export function ProfileScreen() {
               <Input label={t('profile.displayName')} value={displayName} onChange={setDisplayName} maxLength={80}/>
 
               <div>
+                {saveLanguage.error && <Alert type="warning" message={t('profile.languageSaveError')}/>}
                 <p className="text-sm font-medium mb-2">{t('profile.language')}</p>
                 <div className="flex gap-2">
                   {(['fr', 'en'] as Locale[]).map(code => (
                     <button
                       key={code}
-                      onClick={() => void updateProfile({ locale: code }).then(() => setLocale(code))}
+                      disabled={saveLanguage.pending}
+                      aria-pressed={locale === code}
+                      onClick={() => { setLocale(code); void saveLanguage.run(() => updateProfile({ locale: code })) }}
                       className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
                         locale === code
                           ? 'border-[var(--primary)] bg-[var(--secondary)] text-[var(--primary)] font-medium'
@@ -154,6 +160,7 @@ export function ProfileScreen() {
 
         {tab === 'security' && (
           <Card className="p-5">
+            <div className="mb-5"><ConfirmButton variant="secondary" onClick={() => { navigate('/', { replace: true }); void signOut() }}>{t('nav.logout')}</ConfirmButton></div>
             <p className="text-sm font-medium mb-1">{t('profile.sessions')}</p>
             <p className="text-xs text-[var(--muted-foreground)] mb-4">{t('profile.sessionsBody')}</p>
             {revokeSessions.error && (

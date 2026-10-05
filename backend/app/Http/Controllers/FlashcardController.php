@@ -33,66 +33,66 @@ class FlashcardController extends Controller
         return response()->json(['data' => FlashcardDeckResource::collection($decks)]);
     }
 
-/**
- * F-QUI-08 : consultation d'un deck publie avec ses cartes.
- * La politique `FlashcardDeckPolicy::view` interdit tout deck en brouillon
- * a un etudiant, donc aucune carte n'est exposee par erreur.
- *
- * Les cartes portent l'etat de revision du demandeur (`known`) : la reprise
- * d'une session ne depend plus du poste du client.
- */
-public function show(Request $request, FlashcardDeck $deck): FlashcardDeckResource
-{
-    $this->authorize('view', $deck);
+    /**
+     * F-QUI-08 : consultation d'un deck publie avec ses cartes.
+     * La politique `FlashcardDeckPolicy::view` interdit tout deck en brouillon
+     * a un etudiant, donc aucune carte n'est exposee par erreur.
+     *
+     * Les cartes portent l'etat de revision du demandeur (`known`) : la reprise
+     * d'une session ne depend plus du poste du client.
+     */
+    public function show(Request $request, FlashcardDeck $deck): FlashcardDeckResource
+    {
+        $this->authorize('view', $deck);
 
-    $deck->load('cards');
+        $deck->load('cards');
 
-    $known = FlashcardReview::query()
-        ->where('user_id', $request->user()->id)
-        ->whereIn('flashcard_id', $deck->cards->modelKeys())
-        ->pluck('known', 'flashcard_id')
-        ->all();
+        $known = FlashcardReview::query()
+            ->where('user_id', $request->user()->id)
+            ->whereIn('flashcard_id', $deck->cards->modelKeys())
+            ->pluck('known', 'flashcard_id')
+            ->all();
 
-    return new FlashcardDeckResource($deck->setAttribute('knownByViewer', $known));
-}
+        return new FlashcardDeckResource($deck->setAttribute('knownByViewer', $known));
+    }
 
-/**
- * F-QUI-08 : memorisation d'une carte par l'etudiant.
- *
- * POST /flashcard-decks/{deck}/cards/{card}/review  { "known": true|false }
- *
- * L'etat est enregistre par carte (table `flashcard_reviews`) : il survit au
- * rechargement et est propre a l'etudiant. Meme politique que la lecture du
- * deck : deck publie + adhesion acceptee, donc aucune carte d'une autre
- * classe n'est modifiable.
- */
-public function review(Request $request, FlashcardDeck $deck, Flashcard $card): JsonResponse
-{
-    $this->authorize('review', $deck);
+    /**
+     * F-QUI-08 : memorisation d'une carte par l'etudiant.
+     *
+     * POST /flashcard-decks/{deck}/cards/{card}/review  { "known": true|false }
+     *
+     * L'etat est enregistre par carte (table `flashcard_reviews`) : il survit au
+     * rechargement et est propre a l'etudiant. Meme politique que la lecture du
+     * deck : deck publie + adhesion acceptee, donc aucune carte d'une autre
+     * classe n'est modifiable.
+     */
+    public function review(Request $request, FlashcardDeck $deck, Flashcard $card): JsonResponse
+    {
+        $this->authorize('review', $deck);
 
-    // La carte doit bien appartenir au deck de l'URL : sinon on pourrait
-    // ecrire un avis sur une carte d'un autre deck (donc d'une autre classe).
-    abort_unless($card->deck_id === $deck->id, 404);
+        // La carte doit bien appartenir au deck de l'URL : sinon on pourrait
+        // ecrire un avis sur une carte d'un autre deck (donc d'une autre classe).
+        abort_unless($card->deck_id === $deck->id, 404);
 
-    $data = $request->validate([
-        'known' => ['required', 'boolean'],
-    ], [], ['known' => 'revision']);
+        $data = $request->validate([
+            'known' => ['required', 'boolean'],
+        ], [], ['known' => 'revision']);
 
-    $review = FlashcardReview::updateOrCreate(
-        [
-            'user_id' => $request->user()->id,
-            'flashcard_id' => $card->id,
-        ],
-        ['known' => (bool) $data['known']],
-    );
+        $review = FlashcardReview::updateOrCreate(
+            [
+                'user_id' => $request->user()->id,
+                'flashcard_id' => $card->id,
+            ],
+            ['known' => (bool) $data['known']],
+        );
 
-    return response()->json([
-        'data' => [
-            'card_id' => $card->id,
-            'known' => $review->known,
-        ],
-    ]);
-}
+        return response()->json([
+            'data' => [
+                'card_id' => $card->id,
+                'known' => $review->known,
+            ],
+        ]);
+    }
 
     public function store(Request $request, Classroom $classroom): JsonResponse
     {
@@ -137,8 +137,11 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
             'title' => ['required', 'string', 'max:255'],
         ]);
 
-        $deck->update(['title' => $data['title']]);
-        $deck->markReviewed();
+        $deck->fill(['title' => $data['title']]);
+        if ($deck->isDirty('title')) {
+            $deck->save();
+            $deck->markReviewed();
+        }
 
         return new FlashcardDeckResource($deck->fresh('cards'));
     }
@@ -159,10 +162,11 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
             'back' => ['required', 'string', 'max:2000'],
         ]);
 
-        $card->update($data);
-
-        // F-IA-03 : le contenu ayant changé, la relecture suit.
-        $deck->markReviewed();
+        $card->fill($data);
+        if ($card->isDirty(['front', 'back'])) {
+            $card->save();
+            $deck->markReviewed();
+        }
 
         return response()->json([
             'data' => [
@@ -170,6 +174,7 @@ public function review(Request $request, FlashcardDeck $deck, Flashcard $card): 
                 'front' => $card->front,
                 'back' => $card->back,
                 'position' => $card->position,
+                'deck_reviewed' => (bool) $deck->reviewed,
             ],
         ]);
     }

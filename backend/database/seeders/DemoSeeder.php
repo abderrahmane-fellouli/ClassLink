@@ -2,19 +2,17 @@
 
 namespace Database\Seeders;
 
-use App\Enums\AiTarget;
 use App\Enums\ClassStatus;
 use App\Enums\MembershipStatus;
 use App\Enums\QuizStatus;
 use App\Enums\Role;
 use App\Models\AiProvider;
-use App\Models\Announcement;
 use App\Models\AppNotification;
 use App\Models\Assignment;
 use App\Models\Attempt;
 use App\Models\Classroom;
+use App\Models\FlashcardDeck;
 use App\Models\Membership;
-use App\Models\Material;
 use App\Models\PartnerProfile;
 use App\Models\PartnerRequest;
 use App\Models\Quiz;
@@ -104,7 +102,8 @@ class DemoSeeder extends Seeder
                 [
                     'display_name' => $first.' '.$last,
                     'role' => Role::Teacher->value,
-                    'role_locked' => false,
+                    // Explicitly approved LOCAL demo fixture, not Microsoft proof.
+                    'role_locked' => true,
                     'locale' => 'fr',
                     'is_active' => true,
                 ]
@@ -417,7 +416,7 @@ class DemoSeeder extends Seeder
             'author_id' => $classroom->teacher_id,
             'title' => 'Rappel : évaluation diagnostique',
             'body' => "La prochaine évaluation portera sur les chapitres 1 à 3.\n"
-                ."Merci de revising le cours et les exercices du cahier.",
+                .'Merci de revising le cours et les exercices du cahier.',
             'pinned' => true,
         ]);
 
@@ -504,7 +503,7 @@ class DemoSeeder extends Seeder
         $classes = Classroom::where('status', 'active')->get();
 
         foreach ($classes as $classroom) {
-            $deck = \App\Models\FlashcardDeck::updateOrCreate(
+            $deck = FlashcardDeck::updateOrCreate(
                 ['classroom_id' => $classroom->id, 'title' => 'Révision — notions clés'],
                 [
                     'source' => 'manual',

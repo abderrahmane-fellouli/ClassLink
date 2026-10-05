@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { useAuth } from '../context/AuthContext'
+import { CopyButton } from '../components/CopyButton'
 import { errorMessage, firstFieldError } from '../lib/api'
 import { classrooms, progression, quizzes } from '../lib/endpoints'
 import { useAction, useAsync } from '../lib/useAsync'
@@ -283,14 +284,14 @@ export function ClassProgressScreen() {
             error={progress.error}
             onRetry={progress.reload}
             errorMessage={t('common.error')}
-            isEmpty={!totals || totals.attempts === 0}
+            isEmpty={!totals}
             empty={<EmptyState message={t('progress.noData')}/>}
           >
             {totals && (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-7">
                   <StatTile label={t('progress.students')} value={String(totals.students)}/>
-                  <StatTile label={t('progress.stat.quizAverage')} value={`${totals.class_average}%`} color="var(--accent)"/>
+                  <StatTile label={t('progress.stat.quizAverage')} value={totals.attempts ? `${totals.class_average}%` : '—'} color="var(--accent)"/>
                   <StatTile label={t('progress.stat.submission')} value={`${totals.participation_rate}%`} color="green"/>
                   <StatTile
                     label={t('progress.stat.atRisk')}
@@ -352,8 +353,6 @@ export function CreateClassScreen() {
   })
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [created, setCreated] = useState<ApiClassroom | null>(null)
-  const [copied, setCopied] = useState(false)
-  const copy = useAction()
 
   async function submit() {
     setFieldErrors({})
@@ -382,8 +381,7 @@ export function CreateClassScreen() {
           <div className="px-4 py-3 rounded-lg bg-[var(--secondary)] mb-5">
             <p className="text-xs text-[var(--muted-foreground)] mb-1">{t('manage.settings.code')}</p>
             <p className="font-mono text-2xl font-bold tracking-widest text-[var(--primary)]">{created.join_code}</p>
-            <Btn size="sm" variant="secondary" onClick={() => void copy.run(async () => { await navigator.clipboard.writeText(created.join_code ?? ''); setCopied(true) })}>{t(copied ? 'common.copied' : 'common.copy')}</Btn>
-            {copy.error && <Alert type="error" message={t('common.error')}/>}
+            <CopyButton value={created.join_code ?? ''}/>
           </div>
           <div className="flex gap-2 justify-center">
             <Btn onClick={() => navigate(`/app/classes/${created.id}/manage`)}>{t('createClass.manage')}</Btn>

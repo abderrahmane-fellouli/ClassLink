@@ -11,6 +11,28 @@
 */
 
 return [
+    'digest' => [
+        'subject' => 'ClassLink — daily summary',
+        'heading' => 'Your ClassLink updates:',
+        'types' => [
+            'join_requested' => 'Membership request', 'membership_accepted' => 'Membership accepted',
+            'membership_rejected' => 'Membership rejected', 'membership_removed' => 'Membership removed',
+            'quiz_published' => 'New quiz', 'graded' => 'Assignment graded',
+            'partner_request_received' => 'Study partner request', 'partner_request_answered' => 'Study partner response',
+            'ai_job_finished' => 'AI generation update', 'announcement_published' => 'Announcement',
+            'assignment_published' => 'New assignment',
+        ],
+    ],
+    'otp' => [
+        'invalid' => 'Invalid or expired code.',
+        'expired' => 'Code expired.',
+        'attempts_exhausted' => 'Maximum number of attempts reached.',
+        'account_denied' => 'This account is not authorized to access ClassLink.',
+        'sent' => 'If this address is allowed, a sign-in code has been sent.',
+        'delivery_failed' => 'The sign-in email could not be sent. Please try again later.',
+        'email_subject' => 'Your ClassLink sign-in code',
+        'email_body' => "Your ClassLink code is: :code\n\nIt is valid for :minutes minutes. You have 5 attempts.\nIf you did not request this code, ignore this message.",
+    ],
 
     'errors' => [
         'invalid_data' => 'Invalid data.',

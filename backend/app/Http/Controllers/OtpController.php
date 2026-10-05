@@ -2,14 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\Role;
 use App\Http\Requests\OtpRequest;
 use App\Http\Requests\OtpVerifyRequest;
 use App\Http\Resources\UserResource;
 use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 
 /**
  * F-AUTH-02 — connexion de secours par code à 6 chiffres.
@@ -30,7 +28,7 @@ class OtpController extends Controller
         $this->otp->request($request->string('email')->toString());
 
         return response()->json([
-            'message' => 'Si cette adresse est autorisée, un code vient d\'être envoyé.',
+            'message' => __('api.otp.sent'),
         ], 202);
     }
 

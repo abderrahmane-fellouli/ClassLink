@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test'
 export default defineConfig({
+  globalSetup: './browser/prepare-local.mjs',
   testDir: './browser',
   outputDir: '../artifacts/browser',
   reporter: [['list']],

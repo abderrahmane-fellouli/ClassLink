@@ -163,8 +163,8 @@ Security checks (recommended):
 - OAuth 500 `Socialite Facade not found`: ensure `laravel/socialite` installed and imports use `Laravel\Socialite\Facades\Socialite` (Laravel 12). Azure provider registered via `SocialiteWasCalled` event.
 - Fragment token lost: callback must redirect to `/auth/microsoft/callback#token=...` (not query string). Frontend reads hash.
 - Pending vs denied: unknown format (@ofppt-edu.ma but not matching patterns) → pending screen; external domain → denied screen (§17.6).
-- Deprecated notices: PHP 8.5 local deprecations in framework/collision (documented in `docs/ASSUMPTIONS.md`); production targets PHP 8.3 — safe to ignore in local test output.
-- PDF extraction: if `smalot/pdf-parser` absent, AI PDF jobs return 422/503 with `pdf_not_configured` (manual fallback). Install package when PDF AI required: `composer require smalot/pdf-parser` (note: availability varies by environment).
+- Deprecated notices: PHP 8.5 local deprecations in framework/collision (documented in `docs/ASSUMPTIONS.md`); production targets PHP 8.4 — safe to ignore in local test output.
+- PDF extraction: `smalot/pdfparser` 2.12.5 is installed and locked, so PDF-backed AI works; if the package is ever absent, AI PDF jobs return 422/503 with an explicit error and the manual-creation fallback stays available.
 - `composer audit` is clean. `laravel/framework` is pinned to `^12.69.3`, the first 12.x line free of every advisory that affected 11.57; the CI `audit` job fails the build on any new advisory and `block-insecure` is left enabled so Composer itself refuses an insecure resolution.
 - Image fails to build with `composer: not found`: the Composer binary must be copied from the `vendor` stage into the PHP stage before `composer dump-autoload` (see `Dockerfile`).
 - `/up` returns 500 in a container: with `DB_CONNECTION=sqlite`, the file named by `DB_DATABASE` must already exist (`touch /tmp/db.sqlite`).

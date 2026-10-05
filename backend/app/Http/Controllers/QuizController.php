@@ -122,6 +122,17 @@ class QuizController extends Controller
     }
 
     /** §12.4 — PATCH /quizzes/{id}. */
+    public function openEditor(Request $request, Quiz $quiz): QuizResource
+    {
+        $this->authorize('manageQuestions', $quiz);
+        $quiz->load('questions.options', 'classroom');
+        if ($quiz->isAiGenerated()) {
+            $quiz->recordEditorOpening($request->user());
+            AuditLog::record($request->user(), 'quiz.editor_open', ['quiz_id' => $quiz->id]);
+        }
+        return new QuizResource($quiz);
+    }
+
     public function update(Request $request, Quiz $quiz): QuizResource
     {
         $this->authorize('update', $quiz);
@@ -173,7 +184,7 @@ class QuizController extends Controller
             throw new BusinessRuleException('Un quiz doit contenir au moins une question.', 422);
         }
 
-        if (! $quiz->canBePublished()) {
+        if (! $quiz->canBePublished($request->user())) {
             throw new BusinessRuleException(
                 'Ce quiz a été généré par l\'IA. Relisez-le et validez la relecture avant de publier.',
                 409,
@@ -225,6 +236,9 @@ class QuizController extends Controller
                 'Seul un quiz généré par l\'IA doit être validé manuellement.',
                 422
             );
+        }
+        if (! $quiz->openedBy($request->user())) {
+            throw new BusinessRuleException('Open this quiz in the editor before reviewing it.', 409, ['requires_editor' => true]);
         }
 
         if ((bool) $quiz->reviewed && $quiz->reviewed_at !== null) {

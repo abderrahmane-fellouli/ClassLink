@@ -49,6 +49,10 @@ export interface AuthResult {
 export const auth = {
   /** §17.6 : le serveur redirige vers Microsoft, puis revient avec #token=. */
   microsoftRedirectUrl: () => api.absolute('/auth/microsoft/redirect'),
+  microsoftPendingVerification: (verification: string, ctx?: Ctx) =>
+    api.post<{ verification_source: 'microsoft'; role_candidate: 'student' | 'teacher'; status: 'pending' | 'approved' | 'denied' }>(
+      '/auth/microsoft/pending-verification', { verification }, { ...ctx, anonymous: true },
+    ),
 
   /** F-AUTH-02 : réponse 202, identique que l'adresse existe ou non. */
   requestOtp: (email: string, ctx?: Ctx) =>
@@ -135,6 +139,7 @@ export const joinRequests = {
 /* ── 12.3 Contenus ─────────────────────────────────────────────────── */
 
 export const content = {
+  myAnnouncements: (ctx?: Ctx) => api.get<ListResponse<ApiAnnouncement>>('/me/announcements', ctx),
   materials: (classroomId: number, ctx?: Ctx) =>
     api.get<ListResponse<ApiMaterial>>(`/classes/${classroomId}/materials`, ctx),
 
@@ -175,6 +180,7 @@ export const content = {
 /* ── 12.4 Quiz ─────────────────────────────────────────────────────── */
 
 export const quizzes = {
+  openEditor: (id: number, ctx?: Ctx) => api.get<ApiQuiz>(`/quizzes/${id}/editor`, ctx),
   addQuestion: (id: number, payload: unknown, ctx?: Ctx) => api.post<ApiQuestion>(`/quizzes/${id}/questions`, payload, ctx),
   updateQuestion: (id: number, payload: unknown, ctx?: Ctx) => api.patch<ApiQuestion>(`/questions/${id}`, payload, ctx),
   deleteQuestion: (id: number, ctx?: Ctx) => api.delete<void>(`/questions/${id}`, ctx),
@@ -360,7 +366,7 @@ export const flashcards = {
     cardId: number,
     payload: { front: string; back: string },
     ctx?: Ctx,
-  ) => api.patch<{ data: { id: number; front: string; back: string } }>(
+  ) => api.patch<{ data: { id: number; front: string; back: string; deck_reviewed: boolean } }>(
     `/flashcard-decks/${deckId}/cards/${cardId}`,
     payload,
     ctx,

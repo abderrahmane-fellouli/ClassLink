@@ -10,7 +10,7 @@ export type MembershipStatus = 'pending' | 'accepted' | 'rejected'
 export type ClassStatus = 'active' | 'archived'
 export type QuizStatus = 'draft' | 'published'
 export type AiTarget = 'quiz' | 'flashcard'
-export type AiJobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+export type AiJobStatus = 'queued' | 'processing' | 'done' | 'failed'
 
 /* UserResource */
 export interface ApiUser {
@@ -93,6 +93,7 @@ export interface ApiMaterial {
 
 /* AnnouncementResource */
 export interface ApiAnnouncement {
+  classroom?: { id: number; name: string }
   id: number
   classroom_id: number
   title: string
@@ -387,6 +388,8 @@ export interface ApiAdminUser {
   display_name: string
   role: Role
   role_locked: boolean
+  role_candidate?: 'student' | 'teacher' | null
+  verification_source?: 'microsoft' | null
   is_active: boolean
   last_login_at: string | null
   created_at: string | null

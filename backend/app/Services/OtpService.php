@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Enums\Role;
+use App\Exceptions\BusinessRuleException;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Support\RoleDetector;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -51,26 +53,24 @@ class OtpService
             'ip' => request()?->ip(),
         ]);
 
-        $this->dispatch($email, $code, $otp->expires_at);
+        try {
+            $this->dispatch($email, $code, $otp->expires_at);
+        } catch (\Throwable $e) {
+            $otp->delete();
+            Log::warning('OTP email delivery failed');
+            throw new BusinessRuleException(__('api.otp.delivery_failed'), 503);
+        }
     }
 
     protected function dispatch(string $email, string $code, Carbon $expiresAt): void
     {
         $minutes = (int) config('classlink.otp.ttl_minutes', 10);
 
-        try {
-            Mail::raw(
-                "Votre code ClassLink est : {$code}\n\nIl est valable {$minutes} minutes. "
-                ."Vous avez droit à 5 essais.",
-                function ($message) use ($email) {
-                    $message->to($email)->subject('Votre code de connexion ClassLink');
-                }
-            );
-        } catch (\Throwable $e) {
-            // En local (MAIL_MAILER=log) ou si le SMTP est indisponible, le
-            // code est journalisé pour permettre la démonstration.
-            Log::warning('OTP email delivery failed');
-        }
+        Mail::raw(__('api.otp.email_body', ['code' => $code, 'minutes' => $minutes]),
+            function ($message) use ($email) {
+                $message->to($email)->subject(__('api.otp.email_subject'));
+            }
+        );
     }
 
     /**
@@ -83,35 +83,41 @@ class OtpService
      */
     public function verify(string $email, string $code): array
     {
+        return DB::transaction(fn () => $this->verifyLocked($email, $code));
+    }
+
+    private function verifyLocked(string $email, string $code): array
+    {
         $email = strtolower(trim($email));
 
         $otp = OtpCode::where('email', $email)
             ->whereNull('consumed_at')
             ->latest('id')
+            ->lockForUpdate()
             ->first();
 
         if (! $otp) {
-            return ['ok' => false, 'reason' => 'Code invalide ou expiré.'];
+            return ['ok' => false, 'reason' => __('api.otp.invalid')];
         }
 
         if ($otp->isExpired()) {
-            return ['ok' => false, 'reason' => 'Code expiré.'];
+            return ['ok' => false, 'reason' => __('api.otp.expired')];
         }
 
         if (! $otp->hasAttemptsLeft()) {
-            return ['ok' => false, 'reason' => 'Nombre maximal de tentatives atteint.'];
+            return ['ok' => false, 'reason' => __('api.otp.attempts_exhausted')];
         }
 
         if (! hash_equals($otp->code_hash, OtpCode::hash(trim($code)))) {
             $otp->increment('attempts');
 
-            return ['ok' => false, 'reason' => 'Code invalide ou expiré.'];
+            return ['ok' => false, 'reason' => __('api.otp.invalid')];
         }
 
         $user = $this->resolveUser($email);
 
         if (! $user->canAccessApp()) {
-            return ['ok' => false, 'reason' => 'Ce compte n\'est pas autorisé à accéder à ClassLink.'];
+            return ['ok' => false, 'reason' => __('api.otp.account_denied')];
         }
 
         $otp->update(['consumed_at' => Carbon::now()]);
@@ -130,12 +136,21 @@ class OtpService
         $user = User::where('email', $email)->first();
 
         if ($user) {
+            $resolved = RoleDetector::resolveFor($email, (bool) $user->role_locked, $user->role);
+            if ($resolved !== $user->role) {
+                $user->tokens()->delete();
+            }
+            $user->forceFill([
+                'role' => $resolved,
+                'role_candidate' => RoleDetector::fromEmail($email) === 'student' ? 'student' : 'teacher',
+            ])->save();
+
             return $user;
         }
 
         $detected = RoleDetector::fromEmail($email);
 
-        return User::create([
+        $user = new User([
             'email' => $email,
             'display_name' => $this->displayNameFromEmail($email),
             'role' => $detected,
@@ -143,13 +158,16 @@ class OtpService
             'locale' => config('app.locale', 'fr'),
             'is_active' => true,
         ]);
+        $user->forceFill(['role_candidate' => $detected === 'student' ? 'student' : 'teacher'])->save();
+
+        return $user;
     }
 
     /** Nom d'affichage provisoire tant que Microsoft n'a rien fourni. */
     private function displayNameFromEmail(string $email): string
     {
         $local = strtok($email, '@');
-        if (preg_match('/^\d{13}$/', (string) $local)) {
+        if (preg_match('/^[0-9]+$/D', (string) $local)) {
             return 'Student';
         }
         $name = str_replace(['.', '-', '_'], ' ', (string) $local);

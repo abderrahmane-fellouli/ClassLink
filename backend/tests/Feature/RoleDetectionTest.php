@@ -2,17 +2,16 @@
 
 namespace Tests\Feature;
 
-use PHPUnit\Framework\Attributes\DataProvider;
-
 use App\Enums\Role;
 use App\Support\RoleDetector;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
  * T-01 a T-04 — Detection de role (§17.5, RG-01/RG-02).
  *
- * Ces tests lisent le code metier de reference « tel quel ».
+ * Conservative observed account conventions; teacher roles require approval.
  */
 class RoleDetectionTest extends TestCase
 {
@@ -38,10 +37,10 @@ class RoleDetectionTest extends TestCase
         ];
     }
 
-    // -- T-02 : 13 chiffres -> etudiant ---------------------------------------
+    // -- T-02 : convention observee des identifiants numeriques ---------------
 
     #[DataProvider('students')]
-    public function test_t02_thirteen_digits_is_student(string $email): void
+    public function test_t02_numeric_local_part_is_student_candidate(string $email): void
     {
         $this->assertSame(Role::Student->value, RoleDetector::fromEmail($email));
     }
@@ -53,30 +52,31 @@ class RoleDetectionTest extends TestCase
             'reference' => ['2007031400094@ofppt-edu.ma'],
             'autre matricule' => ['2007031400095@ofppt-edu.ma'],
             'tout zeros' => ['0000000000000@ofppt-edu.ma'],
+            '12 chiffres' => ['200703140094@ofppt-edu.ma'],
+            '14 chiffres' => ['20070314000941@ofppt-edu.ma'],
+            'short observed identifier' => ['123@OFPPT-EDU.MA'],
         ];
     }
 
     #[DataProvider('nonStudents')]
-    public function test_t02_other_digit_counts_are_not_student(string $email): void
+    public function test_t02_mixed_local_part_requires_approval(string $email): void
     {
-        $this->assertNotSame(Role::Student->value, RoleDetector::fromEmail($email));
+        $this->assertSame(Role::Pending->value, RoleDetector::fromEmail($email));
     }
 
     public static function nonStudents(): array
     {
         return [
-            '12 chiffres' => ['200703140094@ofppt-edu.ma'],
-            '14 chiffres' => ['20070314000941@ofppt-edu.ma'],
             'chiffres et lettres' => ['200703140009a@ofppt-edu.ma'],
         ];
     }
 
-    // -- T-03 : format enseignant -> enseignant -------------------------------
+    // -- T-03 : compte non numerique -> candidat, pas enseignant --------------
 
     #[DataProvider('teachers')]
-    public function test_t03_teacher_pattern_is_teacher(string $email): void
+    public function test_t03_teacher_pattern_is_only_a_pending_candidate(string $email): void
     {
-        $this->assertSame(Role::Teacher->value, RoleDetector::fromEmail($email));
+        $this->assertSame(Role::Pending->value, RoleDetector::fromEmail($email));
     }
 
     public static function teachers(): array
@@ -130,17 +130,17 @@ class RoleDetectionTest extends TestCase
     public function test_email_is_trimmed_and_lowercased(): void
     {
         $this->assertSame(
-            Role::Teacher->value,
+            Role::Pending->value,
             RoleDetector::fromEmail('  ZAKARIYAE.CHERGUI@OFPPT-EDU.MA  ')
         );
     }
 
     // -- RG-03 / §17.6 : un role attribue n'est pas ecrase par "pending" -------
 
-    public function test_pending_never_overwrites_an_assigned_role(): void
+    public function test_unapproved_teacher_is_not_grandfathered(): void
     {
         $this->assertSame(
-            Role::Teacher->value,
+            Role::Pending->value,
             RoleDetector::resolveFor('abc123@ofppt-edu.ma', false, Role::Teacher->value)
         );
     }

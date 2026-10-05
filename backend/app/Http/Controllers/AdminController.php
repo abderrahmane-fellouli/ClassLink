@@ -5,15 +5,15 @@ namespace App\Http\Controllers;
 use App\Enums\ClassStatus;
 use App\Enums\MembershipStatus;
 use App\Enums\Role;
-use App\Http\Resources\UserResource;
+use App\Models\AiJob;
+use App\Models\AiProvider;
 use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\Membership;
+use App\Models\Quiz;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\DB;
 
 /**
  * §12.6 — Administration. F-ADM-01 à F-ADM-06.
@@ -39,12 +39,14 @@ class AdminController extends Controller
         $users = $query->orderBy('created_at')->paginate(25);
 
         return response()->json([
-            'data' => $users->through(fn (User $user) => [
+            'data' => $users->getCollection()->map(fn (User $user) => [
                 'id' => $user->id,
                 'email' => $user->email, // l'admin a le droit (RG-18)
                 'display_name' => $user->display_name,
                 'role' => $user->role,
                 'role_locked' => (bool) $user->role_locked,
+                'role_candidate' => $user->role_candidate,
+                'verification_source' => $user->microsoft_verified_at ? 'microsoft' : null,
                 'is_active' => (bool) $user->is_active,
                 'last_login_at' => $user->last_login_at?->toIso8601String(),
                 'created_at' => $user->created_at?->toIso8601String(),
@@ -109,7 +111,7 @@ class AdminController extends Controller
     public function classes(Request $request): JsonResponse
     {
         $classes = Classroom::with('teacher:id,display_name')
-            ->withCount('memberships')
+            ->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])
             ->orderByDesc('created_at')
             ->get();
 
@@ -177,7 +179,7 @@ class AdminController extends Controller
     /** F-ADM-04 — configuration des fournisseurs IA. */
     public function aiProviders(Request $request): JsonResponse
     {
-        $providers = \App\Models\AiProvider::orderBy('priority')->get();
+        $providers = AiProvider::orderBy('priority')->get();
 
         return response()->json([
             'data' => $providers->map(fn ($p) => [
@@ -196,7 +198,7 @@ class AdminController extends Controller
      * F-ADM-04 — ordre, activation et quota. RG-20 : action sensible
      * journalisée. Les clés ne transitent jamais (§15.2).
      */
-    public function updateAiProvider(Request $request, \App\Models\AiProvider $provider): JsonResponse
+    public function updateAiProvider(Request $request, AiProvider $provider): JsonResponse
     {
         $data = $request->validate([
             'priority' => ['sometimes', 'required', 'integer', 'min:0', 'max:100'],
@@ -222,7 +224,7 @@ class AdminController extends Controller
     }
 
     /** F-ADM-04 — remise à zéro du quota quotidien. */
-    public function resetAiQuota(Request $request, \App\Models\AiProvider $provider): JsonResponse
+    public function resetAiQuota(Request $request, AiProvider $provider): JsonResponse
     {
         $provider->update(['used_today' => 0, 'last_reset_at' => now()]);
 
@@ -238,11 +240,12 @@ class AdminController extends Controller
             'from' => ['sometimes', 'date'],
             'to' => ['sometimes', 'date', 'after_or_equal:from'],
             'user_id' => ['sometimes', 'integer'],
+            'action' => ['sometimes', 'string', 'max:80', 'regex:/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/D'],
         ]);
-        $query = \App\Models\AuditLog::with('user:id,display_name,email');
+        $query = AuditLog::with('user:id,display_name,email');
 
         if ($action = $request->string('action')->toString()) {
-            $query->where('action', $action);
+            $query->where(fn ($q) => $q->where('action', $action)->orWhere('action', 'like', $action.'.%'));
         }
 
         if ($userId = $request->integer('user_id')) {
@@ -250,11 +253,13 @@ class AdminController extends Controller
         }
 
         if ($from = $request->string('from')->toString()) {
-            $query->where('created_at', '>=', $from);
+            $query->where('created_at', '>=', \Illuminate\Support\Carbon::parse($from));
         }
 
         if ($to = $request->string('to')->toString()) {
-            $query->where('created_at', '<=', $to);
+            $end = \Illuminate\Support\Carbon::parse($to);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $to)) $end->endOfDay();
+            $query->where('created_at', '<=', $end);
         }
 
         $logs = $query->orderByDesc('created_at')->paginate(50);
@@ -303,13 +308,13 @@ class AdminController extends Controller
                 'accepted' => Membership::where('status', MembershipStatus::Accepted->value)->count(),
             ],
             'quizzes' => [
-                'total' => \App\Models\Quiz::count(),
-                'published' => \App\Models\Quiz::where('status', 'published')->count(),
-                'draft' => \App\Models\Quiz::where('status', 'draft')->count(),
+                'total' => Quiz::count(),
+                'published' => Quiz::where('status', 'published')->count(),
+                'draft' => Quiz::where('status', 'draft')->count(),
             ],
             'ai_jobs' => [
-                'total' => \App\Models\AiJob::count(),
-                'failed' => \App\Models\AiJob::where('status', 'failed')->count(),
+                'total' => AiJob::count(),
+                'failed' => AiJob::where('status', 'failed')->count(),
             ],
         ]);
     }
@@ -324,6 +329,11 @@ class AdminController extends Controller
                 'id' => $u->id,
                 'email' => $u->email,
                 'display_name' => $u->display_name,
+                'role' => $u->role,
+                'role_locked' => (bool) $u->role_locked,
+                'role_candidate' => $u->role_candidate,
+                'verification_source' => $u->microsoft_verified_at ? 'microsoft' : null,
+                'is_active' => (bool) $u->is_active,
                 'created_at' => $u->created_at?->toIso8601String(),
             ]),
         ]);

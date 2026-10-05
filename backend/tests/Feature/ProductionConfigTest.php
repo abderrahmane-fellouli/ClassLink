@@ -115,28 +115,41 @@ class ProductionConfigTest extends TestCase
         // `render.yaml` fixe `DB_SSLMODE=require`. Une valeur codee en dur
         // (`prefer`) ignorait cette variable et laissait la connexion
         // PostgreSQL de production potentiellement en clair.
-        putenv('DB_SSLMODE=require');
-        $_ENV['DB_SSLMODE'] = 'require';
-
-        try {
-            $fresh = require base_path('config/database.php');
-
-            $this->assertSame('require', $fresh['connections']['pgsql']['sslmode']);
-        } finally {
-            putenv('DB_SSLMODE');
-            unset($_ENV['DB_SSLMODE']);
-        }
+        $fresh = $this->databaseConfigWithSslMode('require');
+        $this->assertSame('require', $fresh['connections']['pgsql']['sslmode']);
     }
 
     public function test_the_database_ssl_mode_falls_back_to_prefer(): void
     {
-        putenv('DB_SSLMODE');
-        unset($_ENV['DB_SSLMODE']);
-
-        $fresh = require base_path('config/database.php');
+        $fresh = $this->databaseConfigWithSslMode(null);
 
         // Le developpement local reste compatible avec un PostgreSQL sans TLS.
         $this->assertSame('prefer', $fresh['connections']['pgsql']['sslmode']);
+    }
+
+    private function databaseConfigWithSslMode(?string $value): array
+    {
+        $oldProcess = getenv('DB_SSLMODE');
+        $oldEnv = $_ENV['DB_SSLMODE'] ?? null;
+        $oldServer = $_SERVER['DB_SSLMODE'] ?? null;
+        try {
+            putenv($value === null ? 'DB_SSLMODE' : 'DB_SSLMODE='.$value);
+            unset($_ENV['DB_SSLMODE'], $_SERVER['DB_SSLMODE']);
+            if ($value !== null) {
+                $_ENV['DB_SSLMODE'] = $_SERVER['DB_SSLMODE'] = $value;
+            }
+
+            return require base_path('config/database.php');
+        } finally {
+            putenv($oldProcess === false ? 'DB_SSLMODE' : 'DB_SSLMODE='.$oldProcess);
+            unset($_ENV['DB_SSLMODE'], $_SERVER['DB_SSLMODE']);
+            if ($oldEnv !== null) {
+                $_ENV['DB_SSLMODE'] = $oldEnv;
+            }
+            if ($oldServer !== null) {
+                $_SERVER['DB_SSLMODE'] = $oldServer;
+            }
+        }
     }
 
     public function test_proxies_are_trusted_so_the_client_ip_is_not_the_proxy_ip(): void

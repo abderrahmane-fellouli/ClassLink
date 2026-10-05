@@ -13,13 +13,14 @@ import { GradeScreen, TeacherClassScreen, QuizEditorScreen, QuizResultsScreen } 
 import { ClassProgressScreen } from '../src/screens/TeacherScreens'
 import { AdminClassesScreen, AdminUsersScreen } from '../src/screens/AdminScreens'
 import { ProfileScreen } from '../src/screens/ProfileScreen'
-import { LoginScreen } from '../src/screens/PublicScreens'
+import { LoginScreen, MicrosoftCallbackScreen, PendingScreen } from '../src/screens/PublicScreens'
 import { jsonResponse } from './setup'
 
 const auth = vi.hoisted(() => ({
   user: { id: 7, display_name: 'Student', role: 'student', initials: 'ST', locale: 'en' },
   role: 'student', signOut: vi.fn().mockResolvedValue(undefined), updateProfile: vi.fn(),
   signInWithOtp: vi.fn(), microsoftRedirectUrl: () => '/api/auth/microsoft/redirect',
+  adoptCallbackToken: vi.fn(),
 }))
 vi.mock('../src/context/AuthContext', () => ({ useAuth: () => auth }))
 
@@ -43,6 +44,63 @@ function manageResponses() {
 beforeEach(() => { setStoredLocale('en'); auth.role = 'student'; auth.signOut.mockClear() })
 
 describe('Shared accessibility and navigation', () => {
+  it('shows Microsoft-verified pending copy only after validating the server receipt', async () => {
+    const receipt = 'a'.repeat(64)
+    window.history.replaceState({}, '', `/pending#verification=${receipt}`)
+    const fetcher = mockApi({ 'POST /auth/microsoft/pending-verification': { verification_source: 'microsoft', role_candidate: 'teacher', status: 'pending' } })
+    mount(<PendingScreen/>, '/pending')
+    expect(await screen.findByText(en['auth.teacherVerifiedPending'])).toBeInTheDocument()
+    expect(window.location.hash).toBe('')
+    expect(fetcher.mock.calls[0][1]?.body).toBe(JSON.stringify({ verification: receipt }))
+  })
+
+  it('a typed pending-page URL cannot claim Microsoft verification', async () => {
+    window.history.replaceState({}, '', '/pending?verification_source=microsoft&role=teacher')
+    const fetcher = mockApi({})
+    mount(<PendingScreen/>, '/pending')
+    expect(screen.getByText(en['auth.pendingGeneric'])).toBeInTheDocument()
+    expect(screen.queryByText(en['auth.teacherVerifiedPending'])).not.toBeInTheDocument()
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it('changes language immediately and preserves local preference when account saving fails', async () => {
+    mockApi({ 'GET /notifications': { data: [], unread_count: 0 } })
+    auth.updateProfile.mockRejectedValueOnce(new Error('offline'))
+    mount(<AppShell><p>Content</p></AppShell>)
+    await userEvent.selectOptions(screen.getAllByRole('combobox', { name: en['profile.language'] })[0], 'fr')
+    expect(document.documentElement.lang).toBe('fr')
+    expect(screen.getAllByText('Tableau de bord').length).toBeGreaterThan(0)
+    expect(auth.updateProfile).toHaveBeenCalledWith({ locale: 'fr' })
+    expect(await screen.findByText(/la préférence du compte/)).toBeInTheDocument()
+  })
+
+  it('mobile menu exposes language and account controls and closes on Escape', async () => {
+    mockApi({ 'GET /notifications': { data: [], unread_count: 0 } })
+    mount(<AppShell><p>Content</p></AppShell>)
+    const trigger = screen.getByRole('button', { name: 'Navigation menu' })
+    await userEvent.click(trigger)
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('combobox', { name: en['profile.language'] })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('clears the OAuth fragment before validating the token and shows recovery on provider errors', async () => {
+    window.history.replaceState({}, '', '/auth/microsoft/callback#token=test-token')
+    auth.adoptCallbackToken.mockImplementationOnce(async () => {
+      expect(window.location.hash).toBe('')
+      return null
+    })
+    const view = mount(<MicrosoftCallbackScreen/>)
+    expect(await screen.findByRole('link', { name: 'Back' })).toBeInTheDocument()
+    expect(auth.adoptCallbackToken).toHaveBeenCalledWith('test-token')
+    view.unmount()
+    window.history.replaceState({}, '', '/auth/microsoft/callback#error=invalid_state')
+    mount(<MicrosoftCallbackScreen/>)
+    expect(await screen.findByText(/Microsoft sign-in could not/)).toBeInTheDocument()
+    expect(window.location.hash).toBe('')
+  })
   it('associates field labels, traps focus, cancels with Escape and restores focus', async () => {
     const action = vi.fn()
     mount(<><Input label="Display name" value="Test"/><ConfirmButton onClick={action}>Remove</ConfirmButton></>)
@@ -198,7 +256,7 @@ describe('Student journeys', () => {
   })
 
   it('renders real sorted assignment and quiz deadlines and server progression trend', async () => {
-    mockApi({ 'GET /classes': { data: [] }, 'GET /me/progress': { totals: {}, history: [{ attempt_id: 1, percentage: 20 }, { attempt_id: 2, percentage: 80 }], trend: { delta_percentage_points: 60 } } })
+    mockApi({ 'GET /classes': { data: [] }, 'GET /me/announcements': { data: [] }, 'GET /me/progress': { totals: {}, history: [{ attempt_id: 1, percentage: 20 }, { attempt_id: 2, percentage: 80 }], trend: { delta_percentage_points: 60 } } })
     const dashboard = mount(<StudentDashboard/>)
     expect(await screen.findByText(/Change from first to latest attempt: 60/)).toBeInTheDocument()
     dashboard.unmount()
@@ -250,7 +308,7 @@ describe('Teacher journeys', () => {
   })
 
   it('loads an existing draft in the same quiz editor and offers reorder/delete', async () => {
-    mockApi({ 'GET /quizzes/2': { title: 'Draft', source: 'ai', due_at: null, max_attempts: 1, shuffle: false, show_answers: true, questions: [{ id: 3, statement: 'Question', type: 'single', explanation: '', options: [{ label: 'A', is_correct: true }, { label: 'B', is_correct: false }] }] } })
+    mockApi({ 'GET /quizzes/2/editor': { title: 'Draft', source: 'ai', due_at: null, max_attempts: 1, shuffle: false, show_answers: true, questions: [{ id: 3, statement: 'Question', type: 'single', explanation: '', options: [{ label: 'A', is_correct: true }, { label: 'B', is_correct: false }] }] } })
     mount(<QuizEditorScreen/>, '/app/classes/1/manage/quizzes/2/edit', '/app/classes/:id/manage/quizzes/:quizId/edit')
     await waitFor(() => expect(screen.getByLabelText('Quiz title')).toHaveValue('Draft'))
     await userEvent.click(screen.getByRole('button', { name: /Questions/ }))
@@ -329,9 +387,12 @@ describe('Admin and profile journeys', () => {
   })
 
   it('renders the pending-user queue and validates a teacher role', async () => {
-    const fetcher = mockApi({ 'GET /admin/users': { data: [], meta: { total: 0 } }, 'GET /admin/users/pending': { data: [{ id: 4, display_name: 'Pending account' }] }, 'PATCH /admin/users/4': { id: 4, role: 'teacher' } })
+    const fetcher = mockApi({ 'GET /admin/users': { data: [], meta: { total: 0 } }, 'GET /admin/users/pending': { data: [{ id: 4, display_name: 'Pending account', email: 'trainer.name@ofppt-edu.ma', role_candidate: 'teacher', verification_source: 'microsoft', is_active: true }] }, 'PATCH /admin/users/4': { id: 4, role: 'teacher' } })
     mount(<AdminUsersScreen/>)
     await screen.findByText('Pending account')
+    expect(screen.getByText('trainer.name@ofppt-edu.ma')).toBeInTheDocument()
+    expect(screen.getByText(en['auth.teacherCandidate'])).toBeInTheDocument()
+    expect(screen.getByText(en['auth.sourceMicrosoft'])).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Teacher' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await waitFor(() => expect(fetcher.mock.calls.some(([, init]) => init?.body === JSON.stringify({ role: 'teacher' }))).toBe(true))

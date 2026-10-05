@@ -3,12 +3,12 @@
 namespace Tests\Unit;
 
 use App\Enums\QuestionType;
-use App\Models\Membership;
+use App\Exceptions\BusinessRuleException;
 use App\Models\Classroom;
+use App\Models\Membership;
 use App\Models\User;
 use App\Services\MembershipService;
 use App\Services\NotificationService;
-use App\Exceptions\BusinessRuleException;
 use App\Services\QuizGradingService;
 use App\Support\RoleDetector;
 use Tests\TestCase;
@@ -18,7 +18,7 @@ class DomainRulesTest extends TestCase
     public function test_role_detection_and_locked_roles(): void
     {
         $this->assertSame('student', RoleDetector::fromEmail('2007031400094@ofppt-edu.ma'));
-        $this->assertSame('teacher', RoleDetector::fromEmail('nom.prenom@ofppt-edu.ma'));
+        $this->assertSame('pending', RoleDetector::fromEmail('nom.prenom@ofppt-edu.ma'));
         $this->assertSame('pending', RoleDetector::fromEmail('abc123@ofppt-edu.ma'));
         $this->assertSame('denied', RoleDetector::fromEmail('x@gmail.com'));
         $this->assertSame('admin', RoleDetector::resolveFor('nom.prenom@ofppt-edu.ma', true, 'admin'));

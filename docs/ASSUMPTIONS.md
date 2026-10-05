@@ -2,6 +2,19 @@
 
 This document records remaining external dependencies, known limitations, and intentional trade-offs. Per requirements: do not hide unresolved dependencies; document them explicitly.
 
+> Current OFPPT policy: exact `ofppt-edu.ma` domain, numeric observed student
+> candidates, non-numeric pending teacher candidates requiring admin approval.
+> Durable Microsoft identity uses tenant + Graph object ID, never inferred birth
+> dates or email alone. See [OFPPT_MICROSOFT_AUTH.md](OFPPT_MICROSOFT_AUTH.md).
+> Real school-tenant testing is pending; older automatic-teacher notes are superseded.
+
+> Historical delivery notes below contain old test counts and runtime assumptions.
+> The current local findings and verification boundaries are in
+> [LOCAL_POLISH_REPORT.md](LOCAL_POLISH_REPORT.md). In particular, the PDF parser
+> is now installed, OAuth has browser-bound state validation, browser checks run in
+> Chromium/Firefox, and the minimum PHP version is 8.4.1. External
+> credentials/integrations and the Docker image build are still pending.
+
 ## External Dependencies (Not Live-Tested)
 
 The following services require real credentials/configuration in production and were not exercised against live endpoints in this delivery:
@@ -14,21 +27,36 @@ The following services require real credentials/configuration in production and 
 
 No claim is made that external services are live-tested without credentials present.
 
-## PDF Extraction (Unresolved Dependency)
+## PDF Extraction (Resolved)
 
-- `smalot/pdf-parser` is **not installed** in the current vendor tree (not present in `composer.lock` and `composer require` previously failed in this environment). 
-- `App\Services\SmalotPdfTextExtractor` implements `PdfTextExtractor` and throws explicit exceptions: `pdf_not_configured` (when class missing), `pdf_not_found`, `pdf_corrupted`, `pdf_unreadable`. 
-- AI generation endpoint accepts PDF uploads but will return a 422/503-style manual fallback path when extraction cannot run (T-19: “manual quiz creation still works when AI is down—). 
-- This is intentional: prefer explicit failure over silent empty extraction. To enable live PDF-backed AI in an environment where the package is available, run `composer require smalot/pdf-parser` and ensure PHP extensions allow PDF parsing. The code remains abstracted via the `PdfTextExtractor` contract (tests use fakes).
+- `smalot/pdfparser` **2.12.5** is installed and locked in `backend/composer.lock`, so
+  PDF-backed AI generation works locally. `App\Services\SmalotPdfTextExtractor`
+  implements `PdfTextExtractor` and still raises explicit exceptions — `pdf_not_found`,
+  `pdf_corrupted`, `pdf_unreadable` — instead of silently returning empty text.
+- Real text/page extraction is asserted by `backend/tests/Unit/PdfExtractionTest.php`.
+- The manual quiz-creation fallback remains the documented behaviour when extraction
+  fails or the AI provider is down (T-19).
+- Remaining external limitation: the *model* response still requires live provider
+  credentials, so only the parsing half of the pipeline is proven locally.
 
 ## PHP Version & Deprecations
 
-- Local environment: PHP **8.5.1** (Windows). Production target: **PHP 8.3** (per spec/typical Render). 
-- The full suite is **246 tests / 641 assertions / 0 failures**. On PHP 8.5 the summary line sometimes reads `246 deprecated` instead of `246 passed` — the label is **not stable across identical runs** (observed both ways on consecutive runs of the same commit). That is PHPUnit's deprecation bookkeeping, not a functional result: on PHP 8.5 *every* test boots the framework and touches the two notices below, and whether PHPUnit has installed its handler before the first notice fires determines how the run is labelled. Two distinct sources: 
-  - `PDO::MYSQL_ATTR_SSL_CA` deprecated since PHP 8.5 — originates from `vendor/laravel/framework/config/database.php` (framework code). Workaround in app config uses `constant()` to pick `Pdo\Mysql::ATTR_SSL_CA` when defined (PHP 8.2+) or legacy constant; this avoids triggering deprecation on 8.5 while remaining compatible with 8.3. Not a ClassLink code defect.
-  - `ReflectionMethod::setAccessible()` deprecated since PHP 8.5 — originates from `vendor/nunomaduro/collision` (dev dependency, test runner). No impact on production runtime.
-- Decision: do **not** modify vendor files or force unsafe polyfills. Deprecations are upstream and will not affect behavior on PHP 8.3 production. Documented here per delivery instructions (treat as non-failures, identify source).
-- These notices do not appear on PHP 8.3, which is the version pinned in the `Dockerfile` and in CI — there the summary is a clean `246 passed`.
+- Minimum supported PHP is **8.4.1**, matching `Dockerfile`, `.github/workflows/ci.yml`
+  (`php-version: '8.4'`) and the README badge. Local development runs PHP **8.5.1**
+  (Windows). The floor is 8.4 rather than 8.3 because the locked Symfony 8.1
+  dependencies require it; `composer check-platform-reqs --no-dev` is part of the
+  verification record.
+- The full local suite is **500 tests / 1770 assertions / 0 failures** on SQLite.
+  CI additionally runs the same suite against PostgreSQL.
+- On PHP 8.5 two upstream deprecation notices can appear in the summary line:
+  - `PDO::MYSQL_ATTR_SSL_CA` deprecated since PHP 8.5 — originates from
+    `vendor/laravel/framework/config/database.php` (framework code). App config uses
+    `constant()` to prefer `Pdo\Mysql::ATTR_SSL_CA` when available, which avoids the
+    notice while staying 8.4-compatible.
+  - `ReflectionMethod::setAccessible()` deprecated since PHP 8.5 — originates from
+    `vendor/nunomaduro/collision` (dev dependency, test runner only).
+- Neither notice affects the 8.4 runtime used by Docker and CI. Vendor files are not
+  modified and no unsafe polyfills are forced.
 
 ## Dependency Security Advisories (`composer audit`)
 
@@ -68,14 +96,33 @@ No follow-up required for v1.0: Laravel 12 is already in use.
 
 ## Testing Scope
 
-- Backend: 234 feature tests / 604 assertions / 0 failures. Every T-xx criterion that can be asserted headlessly is mapped to at least one named test (`test_tNN_…`); the full mapping is in `docs/JIRA-BOARD.md`. 
-- Frontend: 31 Vitest tests (session storage, API client, FR/EN dictionary parity, layout constraints, session-flow routing). Typecheck and production build clean. 
-- No end-to-end (Cypress/Playwright) included in 1.0 scope. T-24 and T-27 are therefore covered at the unit/integration level (`session-flow.test.tsx`, `i18n-layout.test.tsx`); a final visual pass on a real mobile viewport and a real browser back-button click remains a manual deployment step.
-- `docker` is not installed on the delivery machine: the image is statically reviewed and built in the `docker` CI job, but no local `docker build` was executed.
+Measured totals for the current local pass (PHP 8.5.1, SQLite, Node 22):
+
+| Suite | Result |
+| --- | --- |
+| Backend PHPUnit | 500 tests / 1770 assertions / 0 failures |
+| Frontend Vitest | 87 tests / 7 files / 0 failures |
+| Scripts `node --test` | 8 passed |
+| Playwright (Chromium + Firefox) | 30 passed, 4 skipped, 0 failed |
+
+- Every T-xx criterion that can be asserted headlessly is mapped to at least one named
+  test; the full mapping is in `docs/JIRA-BOARD.md`.
+- The 4 skipped Playwright cases are the opt-in real-local-API suites
+  (`responsive.spec.mjs` route sweep and `local-settings.spec.mjs`), which require
+  `CLASSLINK_LOCAL_API` pointing at a running, seeded Laravel instance.
+- Browser coverage is real Chromium and Firefox at 320–1920px, driven by mocked API
+  fixtures plus the opt-in local-API suites. Physical-device/Safari visual approval
+  and final client design sign-off remain manual steps.
+- The `infrastructure` CI job is the verification point for anything Docker: the
+  production image build, `docker compose config`, health/readiness probes, the queue
+  probe, `schedule:run`, and the backup/restore round trip.
+- The backend matrix also runs against PostgreSQL and `shellcheck scripts/*.sh`;
+  only the SQLite leg was executed on this machine.
 
 ## Deployment Assumptions
 
-- Render (backend): PHP 8.3 runtime expected; build runs `composer install --no-dev`, caches config/routes/views, migrates with `--force`. 
+- Render (backend): PHP 8.4 runtime expected; build runs `composer install --no-dev`,
+  caches config/routes/views, migrates with `--force`.
 - Vercel (frontend): static build `dist/`, SPA rewrites to `/index.html`. `VITE_API_URL` points to backend `/api` prefix.
 - Scheduled jobs: GitHub Actions call internal endpoints with `X-Digest-Token` (or external scheduler). `DIGEST_TOKEN` must be non-empty in production to close internal routes (middleware returns 404 if unset).
 

@@ -13,6 +13,17 @@ Base path: `/api`. All endpoints (except public auth + internal digest/prune) re
 ## Public (no auth)
 - `GET /api/auth/microsoft/redirect` — OAuth redirect (throttled). Returns redirect to Microsoft.
 - `GET /api/auth/microsoft/callback` — OAuth callback. Redirects to frontend with `#token=<bearer>` (fragment). Routes: `/auth/microsoft/callback`, `/denied`, `/pending` (§17.6).
+  Authenticated Graph identity must have an exact OFPPT UPN and immutable object
+  ID under the configured school tenant GUID. Non-numeric addresses are pending
+  candidates, not automatic teachers. The durable identity is tenant + object ID.
+  The handshake requires the one-time `state` issued by the redirect route and
+  matching HttpOnly OAuth nonce cookie (10 minutes). API authentication remains
+  bearer-only. Missing/replayed state or provider failure redirects to the
+  callback with a non-sensitive `#error=...`, never an access token.
+- `POST /api/auth/microsoft/pending-verification` — anonymous, throttled, body
+  `{verification:"<single-use receipt>"}`. Returns `{verification_source:"microsoft",
+  role_candidate:"teacher"|"student",status:"pending"|"approved"|"denied"}` only
+  for a valid 10-minute receipt issued after OAuth. No app token/provider IDs.
 - `POST /api/auth/otp/request` — Request OTP (throttled 3/min). Domain restricted to `@ofppt-edu.ma` (RG-01). Response generic for known/unknown.
 - `POST /api/auth/otp/verify` — Verify OTP (throttled 10/min). Issues token if valid within TTL (T-05/T-06).
 - `POST /api/auth/dev/login` — Dev-only login (disabled if `APP_ENV=production` and `DEV_AUTH_ENABLED` false). Throttled.
@@ -53,6 +64,11 @@ Process requests:
 - `POST /api/join-requests/{membership}/reject` — Reject (owner/teacher). Sets cooldown.
 
 ### Materials & Announcements
+- The maximum file size is **10 MiB = 10,485,760 bytes = 10,240 KiB**. This is the
+  resolved SCRUM-39 limit; files larger by even one byte are rejected. PDF and
+  allowed Office documents plus links remain supported.
+- `GET /api/me/announcements` — student-only pinned/newest feed from accepted,
+  active classes, with safe class/author context; pending/removed/other classes excluded.
 - `GET /api/classes/{classroom}/materials` — List (accepted members). Returns metadata only (`has_file`, `file_name`, `mime_type`, `file_size`); no download URL is pre-signed in the listing.
 - `POST /api/classes/{classroom}/materials` — Upload (teacher/owner/admin). MIME whitelist, size limits, .exe refused (T-21), private storage.
 - `GET /api/materials/{material}/download` — Authenticated download. The file is streamed from private storage by this authenticated route; **no presigned URL and no Laravel temporary-signed URL is ever handed to the client** (see the advisory note in `docs/ASSUMPTIONS.md`). Policy: accepted member or owner/admin/teacher as appropriate. Audited.
@@ -69,6 +85,10 @@ Process requests:
 - `POST /api/quizzes/{quiz}/publish` — Publish. AI drafts require reviewed=true (cannot publish before review). Manual publishes immediately (if valid).
 - `POST /api/quizzes/{quiz}/review` — Mark AI draft reviewed (teacher/owner). Cannot mark manual reviewed.
 - Attempts (student): `POST /api/quizzes/{quiz}/attempts` (start), `POST /api/attempts/{attempt}/submit` (submit), `GET /api/attempts/{attempt}` (read own). Deadline handling (T-15), max attempts (T-16), resubmission blocked.
+- `GET /api/quizzes/{quiz}/attempts/active`: `{attempt:null}` or server-frozen questions,
+  remaining seconds and saved `answers` indexed by question ID. No corrections.
+- `PATCH /api/attempts/{attempt}/answers`: `{answers:[{question_id,option_ids:[]}]}`;
+  persists without submitting, rejects late/unauthorized writes.
 - Results/export (teacher/owner): `GET /api/quizzes/{quiz}/results`, `GET /api/quizzes/{quiz}/results/export` (CSV). No emails in export (T-22).
 
 ### AI
@@ -90,11 +110,19 @@ Process requests:
 - `GET /api/me/progress` (student), `GET /api/classes/{classroom}/progress` (teacher/owner).
 - Partners: profile get/put (student), candidates, my requests, request, respond.
 - Flashcards: `GET/POST /api/classes/{classroom}/flashcards`, `GET /api/flashcard-decks/{deck}`, `POST /api/flashcard-decks/{deck}/publish`, `POST /api/flashcard-decks/{deck}/reviewed`, `DELETE /api/flashcard-decks/{deck}`. Drafts hidden from students; policy enforces class access.
+- Deck/card editing: `PATCH /api/flashcard-decks/{deck}` (`title`),
+  `PATCH /api/flashcard-decks/{deck}/cards/{card}` (`front`, `back`),
+  `DELETE /api/flashcard-decks/{deck}/cards/{card}`. A real card edit certifies
+  review; a no-op does not. Card PATCH returns `{data:{id,front,back,position,deck_reviewed}}`.
 - Notifications: list, mark read, mark all read.
 
 ### Admin
 Prefix `/api/admin`, middleware `role:admin`.
 - Users: list, pending, update (promote/deactivate). Role changes audited, role_locked respected (RG-03).
+  Pending/users lists include safe `role_candidate` and `verification_source`;
+  teacher approval via `{role:"teacher"}` locks the authorized role. Rejection
+  via `{is_active:false}` is audited. Ordinary self-profile updates cannot set
+  roles, candidate metadata or Microsoft verification fields.
 - Classes: list, transfer, archive.
 - AI providers: list, update, reset quota.
 - Audit logs: list (immutable, no PII). T-28 coverage.
