@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Exceptions\BusinessRuleException;
 use App\Models\OtpCode;
 use App\Models\User;
+use App\Support\MailDeliveryDiagnostics;
 use App\Support\RoleDetector;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -57,7 +58,7 @@ class OtpService
             $this->dispatch($email, $code, $otp->expires_at);
         } catch (\Throwable $e) {
             $otp->delete();
-            Log::warning('OTP email delivery failed');
+            Log::warning('OTP email delivery failed', MailDeliveryDiagnostics::context($e));
             throw new BusinessRuleException(__('api.otp.delivery_failed'), 503);
         }
     }

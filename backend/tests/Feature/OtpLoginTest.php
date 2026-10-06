@@ -8,7 +8,9 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Mail\Message;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
@@ -43,6 +45,55 @@ class OtpLoginTest extends TestCase
             });
         $this->withHeader('Accept-Language', 'en')
             ->postJson('/api/auth/otp/request', ['email' => '2007031400094@ofppt-edu.ma'])->assertStatus(202);
+    }
+
+    public function test_delivery_diagnostics_never_log_secrets_otp_or_provider_payloads(): void
+    {
+        // All values here are synthetic; no real provider credentials are used.
+        config()->set('mail.default', 'smtp');
+        config()->set('mail.mailers.smtp', [
+            'host' => 'smtp-relay.brevo.com', 'port' => 587,
+            'scheme' => null, 'encryption' => 'tls', 'require_tls' => true,
+            'username' => 'synthetic-user', 'password' => 'synthetic-password',
+            'url' => 'smtp://synthetic-user:synthetic-password@smtp-relay.brevo.com:587',
+        ]);
+        config()->set('mail.from.address', 'sender@example.test');
+        $bodySent = null;
+        Mail::shouldReceive('raw')->once()->andReturnUsing(function ($body) use (&$bodySent) {
+            $bodySent = $body;
+            throw new TransportException('Failed to authenticate synthetic-user synthetic-password '.base64_encode('synthetic-password').' bearer-token '.$body, 535);
+        });
+        Log::shouldReceive('warning')->once()->withArgs(function ($message, $context) use (&$bodySent) {
+            $this->assertSame('OTP email delivery failed', $message);
+            $this->assertSame(TransportException::class, $context['exception_class']);
+            $this->assertSame('authentication_failed', $context['error_category']);
+            $this->assertSame('SMTP authentication failed.', $context['sanitized_message']);
+            $this->assertSame(535, $context['smtp_response_code']);
+            $this->assertTrue($context['mail_url_configured']);
+            $this->assertTrue($context['smtp_host_is_brevo']);
+            $this->assertTrue($context['smtp_username_configured']);
+            $this->assertTrue($context['smtp_password_configured']);
+            $serialized = json_encode($context);
+            foreach (['synthetic-user', 'synthetic-password', base64_encode('synthetic-password'), 'bearer-token', $bodySent, '2007031400094@ofppt-edu.ma'] as $secret) {
+                $this->assertStringNotContainsString($secret, $serialized);
+            }
+            preg_match('/\b[0-9]{6}\b/', $bodySent, $matches);
+            $this->assertNotEmpty($matches);
+            $this->assertStringNotContainsString($matches[0], $serialized);
+            foreach ($context as $value) {
+                $this->assertFalse(is_object($value));
+            }
+
+            return true;
+        });
+        // Laravel separately reports the generic BusinessRuleException.
+        Log::shouldReceive('error')->andReturnNull();
+        $this->withHeader('Accept-Language', 'en')
+            ->postJson('/api/auth/otp/request', ['email' => '2007031400094@ofppt-edu.ma'])
+            ->assertStatus(503)
+            ->assertJsonPath('message', __('api.otp.delivery_failed'));
+        $this->assertDatabaseCount('otp_codes', 0);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     /**
