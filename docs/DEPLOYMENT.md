@@ -312,6 +312,17 @@ seconds escalate to container failure; individual abnormal exits are logged.
 The 900-second job timeout remains below the 960-second database retry interval.
 Alerting and operator response remain necessary for a wedged process.
 
+Tini forwards shutdown signals only to Bash, not to the whole process group.
+The supervisor records an intentional TERM/INT/QUIT shutdown before signalling
+children: nginx receives QUIT to drain requests while PHP-FPM remains available;
+PHP-FPM receives QUIT only after nginx exits. The worker and scheduler receive
+TERM. All tracked children are reaped before exit 0; repeated
+shutdown signals do not interrupt cleanup. Render's shutdown deadline still
+bounds draining. An nginx exit (including status 0) without a supervisor shutdown
+request remains a critical failure. Correlate instance IDs and Render deploy/
+health events to distinguish a platform replacement from an unexpected exit;
+status 0 alone is not evidence of an intentional container shutdown.
+
 ### Storage Ceiling
 
 Cloudflare R2 is billed per stored byte, so the bucket needs an upper bound.

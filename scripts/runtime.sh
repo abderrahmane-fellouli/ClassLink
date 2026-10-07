@@ -31,6 +31,7 @@ case "${1:-serve}" in
         # Supervision logs contain only fixed process names, PIDs and statuses.
         pids=()
         declare -A process_names=()
+        shutdown_requested=0
         start_process() {
             local name="$1" pid
             shift
@@ -48,6 +49,7 @@ case "${1:-serve}" in
             start_process queue-worker "${worker_command[@]}"
         }
         critical_exit() {
+            if (( shutdown_requested )); then return; fi
             printf 'Critical runtime process exited: process=%s pid=%s exit_code=%s; restarting container.\n' "${process_names[$1]}" "$1" "$2" >&2
             exit 1
         }
@@ -78,6 +80,7 @@ case "${1:-serve}" in
         # critical failure is still detected.
         handle_exit() {
             local name="$1" pid="$2" status="$3" now
+            if (( shutdown_requested )); then return; fi
             if [[ "$name" != 'queue-worker' ]]; then
                 critical_exit "$pid" "$status"
                 return
@@ -140,10 +143,40 @@ case "${1:-serve}" in
                 # Exit between kill -0 and wait -n: rescan and collect its status.
             done
         }
-        cleanup() { kill -TERM "${pids[@]}" 2>/dev/null || true; wait || true; }
+        cleanup() {
+            # Repeated platform signals must not interrupt draining/reaping.
+            trap '' TERM INT QUIT
+            local pid signal
+            for pid in "${pids[@]}"; do
+                signal=TERM
+                if (( shutdown_requested )); then
+                    case "${process_names[$pid]}" in
+                        nginx) signal=QUIT ;; # Stop accepting and drain HTTP.
+                        php-fpm) continue ;; # Keep FastCGI available until nginx drains.
+                    esac
+                fi
+                kill -"$signal" "$pid" 2>/dev/null || true
+            done
+            if (( shutdown_requested )); then
+                for pid in "${pids[@]}"; do
+                    if [[ "${process_names[$pid]}" == nginx ]]; then wait "$pid" 2>/dev/null || true; fi
+                done
+                for pid in "${pids[@]}"; do
+                    if [[ "${process_names[$pid]}" == php-fpm ]]; then kill -QUIT "$pid" 2>/dev/null || true; fi
+                done
+            fi
+            for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+        }
+        request_shutdown() {
+            shutdown_requested=1
+            trap '' TERM INT QUIT
+            printf 'Runtime shutdown requested: signal=%s\n' "$1" >&2
+            exit 0 # EXIT cleanup owns child signalling and reaping.
+        }
         trap cleanup EXIT
-        trap 'echo "Runtime shutdown requested: signal=TERM" >&2; exit 0' TERM
-        trap 'echo "Runtime shutdown requested: signal=INT" >&2; exit 0' INT
+        trap 'request_shutdown TERM' TERM
+        trap 'request_shutdown INT' INT
+        trap 'request_shutdown QUIT' QUIT
         # Do not accept web traffic until the FastCGI listener is available.
         start_process php-fpm php-fpm -F
         wait_for_fpm "${pids[0]}"

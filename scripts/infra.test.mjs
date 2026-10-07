@@ -227,6 +227,72 @@ test('supervision distinguishes external shutdown from an unexpected process exi
   assert.match(result.stderr, /Runtime shutdown requested: signal=TERM/)
   assert.doesNotMatch(result.stderr, /Critical runtime process exited/)
 })
+test('container init signals only the supervisor, which owns child shutdown ordering', () => {
+  assert.match(read('Dockerfile'), /ENTRYPOINT \["\/sbin\/tini", "--", "bash", "\/app\/infra\/runtime\.sh"\]/)
+  assert.doesNotMatch(read('Dockerfile'), /ENTRYPOINT.*"-g"/)
+})
+test('platform TERM while supervising drains children, reaps them and exits successfully', () => {
+  const result = runSupervisor(`
+    # Shell stand-ins need job control to receive QUIT (real nginx/FPM install
+    # their own signal handlers even when launched as background processes).
+    set -m
+    start_process nginx bash -c 'trap "echo nginx-drained; exit 0" QUIT; while :; do sleep 0.1; done'
+    start_process php-fpm bash -c 'trap "echo fpm-drained; exit 0" QUIT; while :; do sleep 0.1; done'
+    start_process queue-worker bash -c 'trap "echo worker-stopped; exit 0" TERM; while :; do sleep 0.1; done'
+    start_process scheduler bash -c 'trap "echo scheduler-stopped; exit 0" TERM; while :; do sleep 0.1; done'
+    check_cleanup() {
+      cleanup
+      for pid in "\${pids[@]}"; do ! kill -0 "$pid" 2>/dev/null || exit 31; done
+      echo all-children-reaped
+    }
+    trap check_cleanup EXIT
+    ( sleep 0.5; kill -TERM $$ ) &
+    supervise
+  `)
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+  for (const marker of ['nginx-drained', 'fpm-drained', 'worker-stopped', 'scheduler-stopped', 'all-children-reaped']) {
+    assert.ok(result.stdout.includes(marker), `${marker}: ${result.stdout}\n${result.stderr}`)
+  }
+  assert.ok(result.stdout.indexOf('nginx-drained') < result.stdout.indexOf('fpm-drained'))
+  assert.match(result.stderr, /Runtime shutdown requested: signal=TERM/)
+  assert.doesNotMatch(result.stderr, /Critical runtime process exited|restarting container|supervisor wait failed/)
+})
+test('TERM during worker backoff suppresses replacement and intentional shutdown is not a failure', () => {
+  const result = runSupervisor(`
+    start_process nginx bash -c 'sleep 5'
+    start_process queue-worker bash -c 'exit 0'
+    spawn_worker() { echo unexpected-replacement; exit 32; }
+    ( sleep 0.5; kill -TERM $$ ) &
+    supervise
+  `)
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /Runtime shutdown requested: signal=TERM/)
+  assert.doesNotMatch(result.stdout, /unexpected-replacement/)
+  assert.doesNotMatch(result.stderr, /Critical runtime process exited|restarting container/)
+})
+test('a child-only nginx TERM is still unexpected even when nginx exits successfully', () => {
+  const result = runSupervisor(`
+    start_process nginx bash -c 'trap "exit 0" TERM; while :; do sleep 0.1; done'
+    nginx_pid="\${pids[0]}"
+    ( sleep 0.4; kill -TERM "$nginx_pid" ) &
+    supervise
+  `)
+  assert.equal(result.status, 1, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /Critical runtime process exited: process=nginx pid=\d+ exit_code=0;/)
+  assert.doesNotMatch(result.stderr, /Runtime shutdown requested/)
+})
+test('repeated platform TERM does not interrupt graceful web draining', () => {
+  const result = runSupervisor(`
+    set -m
+    start_process nginx bash -c 'trap "sleep 0.5; echo drain-complete; exit 0" QUIT; while :; do sleep 0.1; done'
+    ( sleep 0.4; kill -TERM $$; sleep 0.2; kill -TERM $$ ) &
+    supervise
+  `)
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+  assert.match(result.stdout, /drain-complete/)
+  assert.equal((result.stderr.match(/Runtime shutdown requested/g) ?? []).length, 1)
+  assert.doesNotMatch(result.stderr, /Critical runtime process exited|restarting container/)
+})
 test('FPM readiness retries before nginx starts and is bounded on timeout', () => {
   const ready = runSupervisor(`
     start_process php-fpm bash -c 'sleep 5'

@@ -30,4 +30,6 @@ RUN nginx -e /dev/stderr -t -c /app/infra/nginx.conf
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD curl --fail --silent --max-time 5 "http://127.0.0.1:${PORT:-8000}/up" && php infra/operations.php health
-ENTRYPOINT ["/sbin/tini", "-g", "--", "bash", "/app/infra/runtime.sh"]
+# Signal the supervisor first; it marks shutdown before stopping its children.
+# Group-wide forwarding can let nginx exit before Bash handles the same signal.
+ENTRYPOINT ["/sbin/tini", "--", "bash", "/app/infra/runtime.sh"]
