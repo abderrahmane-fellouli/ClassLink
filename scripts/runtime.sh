@@ -39,9 +39,67 @@ case "${1:-serve}" in
             process_names["$pid"]="$name"
             printf 'Runtime process started: process=%s pid=%s\n' "$name" "$pid" >&2
         }
+        # Single-instance database queue worker. --max-time bounds each worker so
+        # it self-recycles hourly (exit 0) instead of accumulating state forever;
+        # the recycle is handled in-process (see handle_exit) and never restarts
+        # the whole web container.
+        worker_command=(php artisan queue:work database --sleep=2 --tries=1 --timeout=900 --max-time=3600)
+        spawn_worker() {
+            start_process queue-worker "${worker_command[@]}"
+        }
         critical_exit() {
             printf 'Critical runtime process exited: process=%s pid=%s exit_code=%s; restarting container.\n' "${process_names[$1]}" "$1" "$2" >&2
             exit 1
+        }
+        # Replace the dead worker PID with exactly one fresh worker, only after the
+        # previous instance has been reaped, so two workers never overlap in time.
+        respawn_worker() {
+            local exited_pid="$1"
+            local -a live=()
+            local p
+            for p in "${pids[@]}"; do
+                # Retain other dead children so critical exits cannot be hidden.
+                if [[ "$p" != "$exited_pid" ]]; then live+=("$p"); fi
+            done
+            pids=("${live[@]}")
+            unset 'process_names[$exited_pid]'
+            # Bound repeated reconnects, including successful lost-connection exits.
+            # Existing web and scheduler processes keep running during this delay.
+            sleep 2
+            spawn_worker
+        }
+        worker_crashes=0
+        worker_crash_window_start=0
+        # Exit policy: web-tier (php-fpm/nginx) and scheduler failures are fatal and
+        # restart the container (this surfaces the failure to Render). The queue
+        # worker exits 0 on graceful recycles (DB connection loss, restart/TERM
+        # signal, --max-time) and is respawned in-process; repeated non-zero exits
+        # (crash loop) finally escalate to a container restart so an unexpected
+        # critical failure is still detected.
+        handle_exit() {
+            local name="$1" pid="$2" status="$3" now
+            if [[ "$name" != 'queue-worker' ]]; then
+                critical_exit "$pid" "$status"
+                return
+            fi
+            if (( status == 0 )); then
+                worker_crashes=0
+                printf 'Runtime worker recycled: process=%s pid=%s exit_code=%s; respawning worker only.\n' "$name" "$pid" "$status" >&2
+                respawn_worker "$pid"
+                return
+            fi
+            now="$(date +%s)"
+            if (( now - worker_crash_window_start > 60 )); then
+                worker_crashes=0
+                worker_crash_window_start="$now"
+            fi
+            worker_crashes=$((worker_crashes + 1))
+            if (( worker_crashes >= 3 )); then
+                printf 'Runtime worker crash-loop detected: process=%s pid=%s exit_code=%s restarts=%s; restarting container.\n' "$name" "$pid" "$status" "$worker_crashes" >&2
+                exit 1
+            fi
+            printf 'Runtime worker exited: process=%s pid=%s exit_code=%s; respawning worker (%s/3).\n' "$name" "$pid" "$status" "$worker_crashes" >&2
+            respawn_worker "$pid"
         }
         wait_for_fpm() {
             local pid="$1" attempt status
@@ -66,13 +124,14 @@ case "${1:-serve}" in
                 for pid in "${pids[@]}"; do
                     if ! kill -0 "$pid" 2>/dev/null; then
                         if wait "$pid"; then status=0; else status=$?; fi
-                        critical_exit "$pid" "$status"
+                        handle_exit "${process_names[$pid]}" "$pid" "$status"
                     fi
                 done
                 exited_pid=
                 if wait -n -p exited_pid "${pids[@]}"; then status=0; else status=$?; fi
                 if [[ -n "${exited_pid:-}" ]]; then
-                    critical_exit "$exited_pid" "$status"
+                    handle_exit "${process_names[$exited_pid]}" "$exited_pid" "$status"
+                    continue
                 fi
                 if ((status != 127)); then
                     printf 'Runtime supervisor wait failed: exit_code=%s\n' "$status" >&2
@@ -89,9 +148,9 @@ case "${1:-serve}" in
         start_process php-fpm php-fpm -F
         wait_for_fpm "${pids[0]}"
         start_process nginx nginx -e /dev/stderr -c "$nginx_dir/nginx.conf" -g 'daemon off;'
-        start_process queue-worker php artisan queue:work database --sleep=2 --tries=1 --timeout=900
+        spawn_worker
         start_process scheduler bash infra/scheduler.sh
-        # Any lost child, including a clean worker exit, restarts the whole unit.
+        # Worker recycling is independent; web and scheduler exits remain critical.
         supervise
         ;;
     *) exec "$@" ;;

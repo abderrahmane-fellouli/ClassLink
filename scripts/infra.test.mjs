@@ -38,7 +38,7 @@ test('Vercel production build refuses unset or unsafe API URLs', () => {
   assert.equal(spawnSync(process.execPath, ['scripts/check-frontend-env.mjs'], { cwd: root, env: { ...process.env, VITE_API_URL: 'https://api.example.com/api' } }).status, 0)
 })
 test('runtime runs a real worker and schedule:run, without public storage links', () => {
-  assert.match(read('scripts/runtime.sh'), /queue:work database.*--timeout=900/)
+  assert.match(read('scripts/runtime.sh'), /queue:work database.*--timeout=900 --max-time=3600/)
   assert.match(read('scripts/runtime.sh'), /wait -n/)
   assert.match(read('scripts/scheduler.sh'), /php infra\/operations.php schedule/)
   assert.match(read('scripts/operations.php'), /Process\(\[PHP_BINARY, .*'schedule:run'/)
@@ -156,11 +156,65 @@ const runSupervisor = body => {
 }
 
 test('supervision identifies each critical process and preserves its exit code', () => {
-  for (const [name, code] of [['php-fpm', 78], ['nginx', 7], ['queue-worker', 12], ['scheduler', 9], ['queue-worker', 0]]) {
+  for (const [name, code] of [['php-fpm', 78], ['nginx', 7], ['scheduler', 9], ['nginx', 0]]) {
     const result = runSupervisor(`start_process survivor bash -c 'sleep 5'\nstart_process ${name} bash -c 'sleep 0.1; exit ${code}'\nsupervise`)
     assert.equal(result.status, 1, result.error?.message ?? result.stderr)
     assert.match(result.stderr, new RegExp(`Critical runtime process exited: process=${name} pid=\\d+ exit_code=${code};`))
   }
+})
+test('worker exits recover with backoff, one replacement and unchanged web/scheduler PIDs', () => {
+  for (const [code, alreadyExited] of [[0, false], [0, true], [12, false], [1, false]]) {
+    const result = runSupervisor(`
+      start_process php-fpm bash -c 'sleep 8'
+      start_process nginx bash -c 'sleep 8'
+      start_process scheduler bash -c 'sleep 8'
+      web_pids=("\${pids[@]}")
+      start_process queue-worker bash -c 'sleep 0.1; exit ${code}'
+      old_worker="\${pids[3]}"
+      recovery_started=$SECONDS
+      spawn_worker() {
+        ! kill -0 "$old_worker" 2>/dev/null || exit 21
+        [[ "\${#pids[@]}" == 3 ]] || exit 22
+        [[ "\${#process_names[@]}" == 3 ]] || exit 23
+        for p in "\${web_pids[@]}"; do kill -0 "$p" || exit 24; done
+        (( SECONDS - recovery_started >= 2 )) || exit 25
+        start_process queue-worker bash -c 'sleep 5'
+        [[ "\${#pids[@]}" == 4 ]] || exit 26
+        echo 'one replacement; web and scheduler alive; backoff observed'
+        kill -TERM $$
+      }
+      ${alreadyExited ? 'sleep 0.3' : ':'}
+      supervise
+    `)
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+    assert.match(result.stdout, /one replacement; web and scheduler alive; backoff observed/)
+    assert.match(result.stderr, new RegExp(`exit_code=${code}; respawning worker`))
+    assert.doesNotMatch(result.stderr, /restarting container|supervisor wait failed/)
+  }
+})
+test('three abnormal worker exits within 60 seconds escalate after bounded recovery', () => {
+  const result = runSupervisor(`
+    start_process nginx bash -c 'sleep 8'
+    worker_command=(bash -c 'exit 9')
+    spawn_worker
+    supervise
+  `)
+  assert.equal(result.status, 1, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /exit_code=9; respawning worker \(1\/3\)/)
+  assert.match(result.stderr, /exit_code=9; respawning worker \(2\/3\)/)
+  assert.match(result.stderr, /worker crash-loop detected:.*exit_code=9 restarts=3; restarting container/)
+  assert.equal((result.stderr.match(/process started: process=queue-worker/g) ?? []).length, 3)
+})
+test('worker recovery does not discard a concurrently exited critical child', () => {
+  const result = runSupervisor(`
+    start_process queue-worker bash -c 'exit 0'
+    start_process nginx bash -c 'exit 7'
+    worker_command=(bash -c 'sleep 5')
+    sleep 0.3
+    supervise
+  `)
+  assert.equal(result.status, 1, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /process=nginx pid=\d+ exit_code=7; restarting container/)
 })
 test('supervision captures a child that already exited before wait begins', () => {
   const result = runSupervisor("start_process survivor bash -c 'sleep 5'\nstart_process scheduler bash -c 'exit 9'\nsleep 0.2\nsupervise")

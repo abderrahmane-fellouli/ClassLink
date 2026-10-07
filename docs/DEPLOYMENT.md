@@ -302,9 +302,15 @@ Run `php infra/operations.php health` in the container. `/up` is Laravel livenes
 `/ready` additionally checks PostgreSQL, scheduler heartbeat (900s), jobs older
 than 1800s and any `failed_jobs`. `/ready` emits only generic status, never
 credentials or job payloads. Failed jobs keep readiness red until investigated.
-An unhealthy Docker healthcheck alone does not restart Docker; child loss exits
-the container and `restart: unless-stopped` restarts it, while Render observes
-`/ready`. Alerting and operator response remain necessary for a wedged process.
+An unhealthy Docker healthcheck alone does not restart Docker. PHP-FPM, nginx
+and scheduler exits terminate the container; `restart: unless-stopped` restarts
+it in Compose, while Render observes `/ready`. The single database queue worker
+is independently replaced after a two-second backoff, including graceful
+lost-connection/restart exits and hourly `--max-time=3600` recycling. Its old PID
+is reaped before a replacement starts. Three non-zero worker exits within 60
+seconds escalate to container failure; individual abnormal exits are logged.
+The 900-second job timeout remains below the 960-second database retry interval.
+Alerting and operator response remain necessary for a wedged process.
 
 ### Storage Ceiling
 
