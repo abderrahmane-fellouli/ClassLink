@@ -34,6 +34,7 @@ class User extends Authenticatable
         'microsoft_object_id',
         'microsoft_verified_at',
         'role_candidate',
+        'school_identifier',
     ];
 
     protected function casts(): array

@@ -82,7 +82,7 @@ class OfpptMicrosoftAccountTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'user.role_change']);
         $this->actingAs($teacher->fresh())->postJson('/api/classes', [
             'name' => 'Approved class', 'subject' => 'Web', 'group_label' => 'TDI', 'school_year' => '2026',
-        ])->assertCreated();
+        ])->assertForbidden();
         $this->microsoftLogin('zakariyae.chergui@ofppt-edu.ma')->assertRedirectContains('#token=');
         $this->assertSame('teacher', $teacher->fresh()->role);
     }

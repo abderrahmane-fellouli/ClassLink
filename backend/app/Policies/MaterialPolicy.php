@@ -46,6 +46,7 @@ class MaterialPolicy
     /** L'utilisateur est l'enseignant propriétaire de la classe. */
     private function ownsClassroom(User $user, Material $material): bool
     {
+        if ($material->classroom->is_official) { return $material->classroom->isOwnedBy($user); }
         return $user->isTeacher() && $material->classroom->teacher_id === $user->id;
     }
 }

@@ -2,15 +2,20 @@
 
 namespace App\Services;
 
+use App\Enums\MembershipStatus;
 use App\Exceptions\BusinessRuleException;
 use App\Models\Assignment;
 use App\Models\Classroom;
 use App\Models\Quiz;
 use App\Models\Submission;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 /**
  * §16 « Fichiers dangereux : liste blanche de types, taille maximale, noms
@@ -22,8 +27,14 @@ use Illuminate\Support\Str;
  */
 class MaterialStorageService
 {
+    /**
+     * `StorageUsageService` n'est pas optionnel : tout depot passe par lui.
+     * On ne propose donc pas de le passer `null` « pour un test » — un test
+     * doit injecter le vrai service, avec une base configuree.
+     */
     public function __construct(
         private readonly FileContentValidator $validator,
+        private readonly StorageUsageService $usage,
     ) {}
 
     public function disk(): string
@@ -34,7 +45,7 @@ class MaterialStorageService
     /**
      * Valide puis stocke un fichier déposé.
      *
-     * @param  \Illuminate\Http\UploadedFile  $file
+     * @param  UploadedFile  $file
      * @return array{path: string, name: string, mime: string, size: int}
      *
      * @throws BusinessRuleException
@@ -43,27 +54,127 @@ class MaterialStorageService
     {
         $this->assertAllowed($file);
 
-        // Nom nettoyé : UUID + extension. Le nom d'origine n'est jamais
-        // utilisé comme chemin, ce qui élimine la traversée de répertoire et
-        // l'exécution de contenu.
-        $extension = Str::lower($file->getClientOriginalExtension());
-        $safeName = (string) Str::uuid().'.'.$extension;
-        $path = $file->storeAs($prefix, $safeName, ['disk' => $this->disk()]);
+        return $this->storeCounted($file, $prefix, $this->kindFor($prefix));
+    }
 
-        if ($path === false) {
+    /**
+     * Depose un fichier en respectant le plafond de stockage.
+     *
+     * L'ordre est imperatif : reservation **avant** toute ecriture, liberation
+     * de la reservation si l'ecriture echoue. C'est la seule facon d'etre
+     * exact sous concurrence — une ecriture S3 ne participe pas a une
+     * transaction SQL, donc l'ecriture et le compteur ne peuvent pas etre
+     * atomiques. La reservation rend la zone critique « espace occupe »
+     * immediate : deux depots simultanes ne peuvent pas franchir le plafond.
+     *
+     * `assertCanStore()` est appele avant `reserve()` pour echouer tot et
+     * clairement ; `reserve()` reste la seule operation qui fait foi, car elle
+     * seule est evaluee sous verrou par le SGBD.
+     *
+     * Le nom de derive est un UUID : le nom d'origine n'est jamais utilise
+     * comme chemin (§16).
+     *
+     * @param  UploadedFile  $file
+     * @return array{path: string, name: string, mime: string, size: int}
+     */
+    private function storeCounted($file, string $prefix, string $kind, ?object $owner = null): array
+    {
+        $size = (int) $file->getSize();
+        $disk = $this->disk();
+
+        $this->usage->assertCanStore($size, $kind);
+
+        if (! $this->usage->reserve($size)) {
+            // Le plafond a pu etre atteint entre la lecture et la reservation
+            // (depot concurrent). C'est ici que se joue l'exclusion reelle.
+            throw $this->usage->capacityException($size, $kind);
+        }
+
+        try {
+            $path = $file->storeAs($prefix, $this->safeName($file), ['disk' => $disk]);
+        } catch (Throwable $e) {
+            // Pas de reservation fantome apres un echec d'ecriture.
+            $this->usage->release($size);
+
+            throw $e;
+        }
+
+        if (! is_string($path)) {
+            $this->usage->release($size);
+
             throw new BusinessRuleException(__('api.files.storage_failed'), 500);
         }
+
+        // Le registre et la conversion reservation -> usage sont atomiques.
+        try {
+            $this->usage->commitReservation($size, $size, [
+                'disk' => $disk,
+                'path' => $path,
+                'kind' => $kind,
+                'owner_type' => $owner ? $owner::class : null,
+                'owner_id' => $owner?->getKey(),
+            ]);
+        } catch (Throwable $e) {
+            try {
+                $this->purge($path, $disk);
+                $this->usage->release($size);
+            } catch (Throwable $cleanupError) {
+                report($cleanupError);
+            }
+            throw $e;
+        }
+
+        /*
+         * L'ecriture S3 ne peut pas etre annulee par un `DB::rollBack()` : si la
+         * transaction metier echoue apres le depot (ligne `materials`,
+         * `submissions` ou `ai_jobs`), le fichier resterait dans le seau sans
+         * aucune trace en base. On branche donc sa compensation : un rollback
+         * supprime l'objet, et les deux etats convergent.
+         */
+        $this->usage->onRollback(function () use ($path, $disk): void {
+            $this->purge($path, $disk);
+        });
 
         return [
             'path' => $path,
             'name' => Str::limit($file->getClientOriginalName(), 200, ''),
-            'mime' => (string) $file->getClientMimeType(),
-            'size' => (int) $file->getSize(),
+            'mime' => (string) ($file->getClientMimeType() ?: 'application/octet-stream'),
+            'size' => $size,
         ];
     }
 
     /**
-     * @param  \Illuminate\Http\UploadedFile  $file
+     * Nom de derive : UUID + extension.
+     *
+     * Le nom d'origine n'est **jamais** utilise comme chemin : c'est ce qui
+     * elimine la traversee de repertoire et l'execution de contenu (§16). L'UUID
+     * garantit l'unicite sans avoir a assainir le nom, donc deux eleves
+     * peuvent deposer « cours.pdf » sans collision.
+     */
+    private function safeName($file): string
+    {
+        $extension = Str::lower((string) $file->getClientOriginalExtension());
+
+        return (string) Str::uuid().'.'.$extension;
+    }
+
+    /**
+     * Categorie de comptabilite, deduite du prefixe S3.
+     *
+     * Utile pour dire *quel* usage a rempli le seau dans le contexte 507.
+     */
+    private function kindFor(string $prefix): string
+    {
+        return match ($prefix) {
+            'materials' => 'material',
+            'submissions' => 'submission',
+            'ai-inputs' => 'ai_input',
+            default => 'other',
+        };
+    }
+
+    /**
+     * @param  UploadedFile  $file
      *
      * @throws BusinessRuleException
      */
@@ -137,7 +248,7 @@ class MaterialStorageService
      * renvoyait `text/html` pour un fichier déposé sous un nom « .pdf »).
      * La réponse est par ailleurs non exécutable et non interpretables.
      *
-     * @return \Symfony\Component\HttpFoundation\StreamedResponse
+     * @return StreamedResponse
      */
     public function download(string $path, ?string $fileName = null, ?string $mimeType = null)
     {
@@ -178,10 +289,57 @@ class MaterialStorageService
             : 'application/octet-stream';
     }
 
+    /**
+     * Supprime un fichier et rend sa place au seau.
+     *
+     * L'ordre est dicté par le seul piege de ce service : on rend la place
+     * **apres** avoir efface l'objet, jamais avant.
+     *
+     * Dans l'autre sens, un echec reseau rendrait des octets alors que le
+     * fichier est toujours la — c'est le seul cas ou le compteur
+     * *sous-estime* le seau, donc ou le plafond de 9 Gio peut etre depasse. Ce
+     * defaut serait irrattrapable : l'objet n'ayant plus de ligne de registre,
+     * `classlink:storage-reconcile` (qui interroge le disque via `exists()`)
+     * n'a plus rien a purger.
+     *
+     * A l'inverse, un `forget()` qui echoue apres une suppression reussie
+     * sur-estime le seau : le plafond tient toujours, et `--prune` sait
+     * reparer le registre en verifiant `exists()`.
+     *
+     * Un retour `false` du seau signifie « l'objet est peut-etre encore la » :
+     * on leve donc une erreur plutot que de liberer la capacite, et l'appelant
+     * garde sa ligne metier (l'utilisateur peut reessayer).
+     */
     public function delete(?string $path): void
     {
-        if ($path) {
-            Storage::disk($this->disk())->delete($path);
+        if (! $path) {
+            return;
+        }
+
+        $disk = $this->disk();
+
+        if (Storage::disk($disk)->delete($path) === false) {
+            throw new BusinessRuleException(__('api.files.storage_failed'), 500);
+        }
+
+        $this->usage->forget($disk, $path);
+    }
+
+    /**
+     * Compense un rollback metier en supprimant l'objet deja ecrit.
+     *
+     * Volontairement sans `forget()` : la transaction vient d'etre annulee, le
+     * registre et le compteur ne connaissent donc plus ce fichier.
+     *
+     * Aucune exception ne doit sortir d'ici : ce code tourne dans l'ecouteur
+     * `TransactionRolledBack`, ou lever masquerait l'erreur metier d'origine.
+     * `StorageUsageService` capture et journalise ; l'echec de suppression
+     * laisse un orphelin necessitant une intervention cote bucket.
+     */
+    private function purge(string $path, string $disk): void
+    {
+        if (Storage::disk($disk)->delete($path) === false) {
+            throw new BusinessRuleException(__('api.files.storage_failed'), 500);
         }
     }
 
@@ -194,22 +352,31 @@ class MaterialStorageService
         return $assignment->hasDeadline() && now()->gt($assignment->due_at);
     }
 
+    /**
+     * Depose un rendu et l'attache a la ligne de `submissions`.
+     *
+     * Le prefixe S3 est deja partitionne par devoir, donc le registre peut
+     * memoriser le proprietaire : une reconciliation peut ainsi reperer un
+     * fichier orphelin apres la suppression d'un devoir.
+     *
+     * @param  UploadedFile  $file
+     */
     public function storeSubmission($file, Submission $submission, string $prefix = 'submissions'): void
     {
         $this->assertAllowed($file);
 
-        $extension = Str::lower($file->getClientOriginalExtension());
-        $path = $file->storeAs(
+        $stored = $this->storeCounted(
+            $file,
             $prefix.'/'.$submission->assignment_id,
-            (string) Str::uuid().'.'.$extension,
-            ['disk' => $this->disk()]
+            $this->kindFor($prefix),
+            $submission
         );
 
         $submission->update([
-            'file_path' => (string) $path,
-            'file_name' => Str::limit($file->getClientOriginalName(), 200, ''),
-            'mime_type' => $file->getClientMimeType(),
-            'file_size' => (int) $file->getSize(),
+            'file_path' => $stored['path'],
+            'file_name' => $stored['name'],
+            'mime_type' => $stored['mime'],
+            'file_size' => $stored['size'],
         ]);
     }
 
@@ -227,10 +394,10 @@ class MaterialStorageService
         return $classroom->hasAcceptedMember($user->id);
     }
 
-    public function quizzesDueFor(User $student): \Illuminate\Support\Collection
+    public function quizzesDueFor(User $student): Collection
     {
         $classIds = $student->memberships()
-            ->where('status', \App\Enums\MembershipStatus::Accepted->value)
+            ->where('status', MembershipStatus::Accepted->value)
             ->pluck('classroom_id');
 
         return Quiz::whereIn('classroom_id', $classIds)

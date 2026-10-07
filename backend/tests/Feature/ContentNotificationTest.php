@@ -89,6 +89,70 @@ class ContentNotificationTest extends TestCase
         $this->assertNotNull($notification->payload['due_at']);
     }
 
+    public function test_creating_a_resource_notifies_accepted_members(): void
+    {
+        $this->actingAs($this->teacher)
+            ->postJson("/api/classes/{$this->classroom->id}/materials", [
+                'title' => 'Synthetic reference',
+                'type' => 'link',
+                'url' => 'https://example.test/reference',
+            ])
+            ->assertStatus(201);
+
+        $notification = AppNotification::where('user_id', $this->accepted->id)
+            ->where('type', NotificationService::RESOURCE_PUBLISHED)
+            ->sole();
+
+        $this->assertSame('Synthetic reference', $notification->payload['title']);
+        $this->assertSame($this->classroom->id, $notification->payload['classroom_id']);
+        $this->assertSame($this->classroom->name, $notification->payload['classroom_name']);
+        $this->assertNotNull($notification->payload['material_id']);
+        $this->assertSame(
+            0,
+            AppNotification::where('user_id', $this->teacher->id)->where('type', NotificationService::RESOURCE_PUBLISHED)->count(),
+            "L'auteur ne doit pas être notifié de sa propre ressource."
+        );
+    }
+
+    public function test_changing_a_deadline_notifies_accepted_members_exactly_once_per_change(): void
+    {
+        $due = now()->addWeek()->toIso8601String();
+        $id = $this->actingAs($this->teacher)
+            ->postJson("/api/classes/{$this->classroom->id}/assignments", ['title' => 'TP date', 'due_at' => $due])
+            ->assertStatus(201)->json('id');
+
+        // Re-PATCH avec la même date : aucun changement effectif, aucune notification.
+        $this->actingAs($this->teacher)
+            ->patchJson("/api/assignments/$id", ['due_at' => $due])
+            ->assertOk();
+        $this->assertSame(
+            0,
+            AppNotification::where('user_id', $this->accepted->id)->where('type', NotificationService::DEADLINE_CHANGED)->count(),
+            'Une resauvegarde sans changement de date ne doit rien notifier.'
+        );
+
+        $newDue = now()->addDays(2)->toIso8601String();
+        $this->actingAs($this->teacher)
+            ->patchJson("/api/assignments/$id", ['due_at' => $newDue])
+            ->assertOk();
+
+        $notification = AppNotification::where('user_id', $this->accepted->id)
+            ->where('type', NotificationService::DEADLINE_CHANGED)
+            ->sole();
+        $this->assertSame($newDue, $notification->payload['due_at']);
+        $this->assertSame($id, $notification->payload['assignment_id']);
+        $this->assertSame('/app/assignments/'.$id, $notification->payload['url']);
+
+        // Une mise à jour de titre (sans changement de date) ne re-notifie pas.
+        $this->actingAs($this->teacher)
+            ->patchJson("/api/assignments/$id", ['title' => 'TP date finale'])
+            ->assertOk();
+        $this->assertSame(
+            1,
+            AppNotification::where('user_id', $this->accepted->id)->where('type', NotificationService::DEADLINE_CHANGED)->count()
+        );
+    }
+
     // -- RG-06 : seuls les membres acceptes ---------------------------------
 
     public function test_pending_and_rejected_students_are_not_notified(): void

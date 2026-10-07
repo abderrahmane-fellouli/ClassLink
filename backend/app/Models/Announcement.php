@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Announcement extends Model
 {
     use HasFactory;
+    use \App\Models\Concerns\ScopedToOffering;
 
     protected $fillable = [
         'classroom_id',

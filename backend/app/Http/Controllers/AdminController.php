@@ -113,6 +113,7 @@ class AdminController extends Controller
         $classes = Classroom::with('teacher:id,display_name')
             ->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])
             ->orderByDesc('created_at')
+            ->limit(1000)
             ->get();
 
         return response()->json([
@@ -322,7 +323,7 @@ class AdminController extends Controller
     /** Comptes « en attente » à valider — F-AUTH-05. */
     public function pendingUsers(): JsonResponse
     {
-        $users = User::where('role', Role::Pending->value)->orderBy('created_at')->get();
+        $users = User::where('role', Role::Pending->value)->orderBy('created_at')->limit(500)->get();
 
         return response()->json([
             'data' => $users->map(fn (User $u) => [

@@ -25,7 +25,7 @@ class MakeSuperAdminCommand extends Command
     {
         $email = strtolower(trim((string) $this->argument('email')));
 
-        if (! str_ends_with($email, '@ofppt-edu.ma')) {
+        if (! filter_var($email, FILTER_VALIDATE_EMAIL) || ! str_ends_with($email, '@ofppt-edu.ma')) {
             $this->error('L\'adresse doit appartenir au domaine @ofppt-edu.ma (RG-01).');
 
             return self::FAILURE;
@@ -42,8 +42,9 @@ class MakeSuperAdminCommand extends Command
         ]);
 
         $user->save();
+        \App\Models\AuditLog::record(null, 'school.admin.console_provision', ['user_id' => $user->id]);
 
-        $this->info("Super administrateur prêt : {$user->email}");
+        $this->info("Super administrateur prêt : compte #{$user->id}");
         $this->line('Connectez-vous avec Microsoft, ou demandez un code à usage unique.');
         $this->line('Frontend : '.config('classlink.frontend_url').'/login');
 

@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { ConfirmButton, Card, Icons } from './UI'
+import { ConfirmButton, Card, Icons, Btn, Alert } from './UI'
 import { useI18n } from '../i18n'
 import type { Role } from '../lib/types'
 
 function FullPageLoader() {
   const { t } = useI18n()
+  const { retryError, refresh } = useAuth()
+  if (retryError) return <div className="min-h-dvh flex flex-col gap-4 items-center justify-center p-5"><Alert type="error" message={retryError}/><Btn onClick={() => void refresh()}>{t('common.retry')}</Btn></div>
   return (
     <div className="min-h-dvh flex items-center justify-center bg-[var(--background)]">
       <div

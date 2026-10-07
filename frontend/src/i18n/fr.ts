@@ -2,7 +2,10 @@
  * Dictionnaire FR — source de vérité. `en.ts` doit exposer exactement les
  * mêmes clés, le typage de `i18n/index.ts` le vérifie à la compilation.
  */
+import { schoolFr } from './school'
+
 export const fr = {
+  ...schoolFr,
   'copy.failed': 'Le code n’a pas pu être copié. Réessayez ou copiez-le manuellement.',
   'student.latestAnnouncements': 'Dernières annonces',
   'progress.fullHistory': 'Tous mes résultats par quiz',
@@ -66,6 +69,13 @@ export const fr = {
   'preferences.ai_job_finished': 'Générations IA',
   'preferences.announcement_published': 'Nouvelles annonces',
   'preferences.assignment_published': 'Nouveaux devoirs',
+  'preferences.official_grade_published': 'Notes publiées',
+  'preferences.school_message_received': 'Messages scolaires',
+  'preferences.teaching_assignment_changed': 'Affectations enseignantes',
+  'preferences.assignment_request_received': 'Demandes d\'affectation',
+  'preferences.delegate_changed': 'Délégations de classe',
+  'preferences.resource_published': 'Ressources de classe publiées',
+  'preferences.deadline_changed': 'Changements d\'échéance',
   'roster.hint': 'CSV avec colonne email obligatoire (2 Mo maximum). Les étudiants doivent déjà avoir un compte actif.',
   'roster.result': '{{count}} membres importés. Vérifiez la liste des membres.',
   'admin.transfer': 'Transférer la classe',
@@ -694,6 +704,13 @@ export const fr = {
   'notif.announcement.published': 'Nouvelle annonce « {{title}} » dans {{class}}.',
   'notif.assignment.published': 'Nouveau devoir « {{title}} » dans {{class}}.',
   'notif.ai.finished': 'Génération IA terminée ({{status}}).',
+  'notif.teaching.assigned': 'Vous enseignez désormais {{module}} dans {{class}}.',
+  'notif.teaching.revoked': 'Votre affectation pour {{module}} dans {{class}} est terminée.',
+  'notif.assignment.request': '{{name}} a demandé le module {{module}} pour {{class}}.',
+  'notif.delegate.appointed': 'Vous avez été nommé délégué de {{class}}.',
+  'notif.delegate.revoked': 'Votre mandat de délégué pour {{class}} a été révoqué.',
+  'notif.resource.published': 'Nouvelle ressource « {{title}} » dans {{class}}.',
+  'notif.deadline.changed': 'Date limite modifiée pour « {{title}} » dans {{class}}.',
   'notif.unknown': 'Nouvelle notification',
 
   /* ── Erreurs métier courantes ───────────────────────────────────── */

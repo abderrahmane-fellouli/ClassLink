@@ -129,11 +129,13 @@ return [
             'application/vnd.oasis.opendocument.presentation',
             'text/plain',
             'text/csv',
+            'image/png',
+            'image/jpeg',
         ],
 
         'material_extensions' => [
             'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx',
-            'odt', 'odp', 'txt', 'csv',
+            'odt', 'odp', 'txt', 'csv', 'png', 'jpg', 'jpeg',
         ],
     ],
 
@@ -145,6 +147,27 @@ return [
     | que le superviseur puisse les valider (cf. docs/ASSUMPTIONS.md).
     | Elles restent configurables.
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Plafond de stockage - Deployment R2
+    |--------------------------------------------------------------------------
+    | Le bucket Cloudflare R2 est facture a l'octet : un bucket non borne derive.
+    | Ce plafond est un **garde-fou applicatif** : il refuse une reservation
+    | avant toute ecriture S3/R2 des que l'espace compte (fichiers enregistres +
+    | reservations en cours) atteint la limite.
+    |
+    | 9 Gio = 9 * 1024^3 = 9 663 676 416 octets. La production fixe la variable
+    | d'environnement ; la valeur par defaut sert au developpement et aux tests.
+    |
+    | La valeur effective est normalisee par `StorageUsageService::limitBytes()`
+    | (entier strictement positif) : une valeur invalide ou negative retombe sur
+    | le defaut plutot que de desactiver le garde-fou.
+    */
+
+    'storage' => [
+        'limit_bytes' => env('CLASSLINK_STORAGE_LIMIT_BYTES', 9663676416),
+    ],
 
     'ai' => [
         // §15.3 : PDF uniquement en version 1.0.

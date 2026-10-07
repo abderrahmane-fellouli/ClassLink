@@ -142,3 +142,78 @@ test('restore refuses nonempty databases and requires explicit confirmation', ()
   assert.match(script, /--single-transaction/)
   assert.doesNotMatch(script, /--clean|drop database/i)
 })
+
+const supervision = () => {
+  const runtime = read('scripts/runtime.sh')
+  const start = runtime.indexOf('        # Supervision logs')
+  const end = runtime.indexOf('        # Do not accept web traffic', start)
+  assert.ok(start >= 0 && end > start)
+  return runtime.slice(start, end)
+}
+const runSupervisor = body => {
+  const bash = process.platform === 'win32' ? `${process.env.ProgramFiles}/Git/bin/bash.exe` : 'bash'
+  return spawnSync(bash, ['-c', `set -Eeuo pipefail\n${supervision()}\n${body}`], { encoding: 'utf8', timeout: 10000 })
+}
+
+test('supervision identifies each critical process and preserves its exit code', () => {
+  for (const [name, code] of [['php-fpm', 78], ['nginx', 7], ['queue-worker', 12], ['scheduler', 9], ['queue-worker', 0]]) {
+    const result = runSupervisor(`start_process survivor bash -c 'sleep 5'\nstart_process ${name} bash -c 'sleep 0.1; exit ${code}'\nsupervise`)
+    assert.equal(result.status, 1, result.error?.message ?? result.stderr)
+    assert.match(result.stderr, new RegExp(`Critical runtime process exited: process=${name} pid=\\d+ exit_code=${code};`))
+  }
+})
+test('supervision captures a child that already exited before wait begins', () => {
+  const result = runSupervisor("start_process survivor bash -c 'sleep 5'\nstart_process scheduler bash -c 'exit 9'\nsleep 0.2\nsupervise")
+  assert.equal(result.status, 1, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /process=scheduler pid=\d+ exit_code=9;/)
+})
+test('supervision distinguishes external shutdown from an unexpected process exit', () => {
+  const result = runSupervisor("start_process survivor bash -c 'sleep 5'\nkill -TERM $$")
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /Runtime shutdown requested: signal=TERM/)
+  assert.doesNotMatch(result.stderr, /Critical runtime process exited/)
+})
+test('FPM readiness retries before nginx starts and is bounded on timeout', () => {
+  const ready = runSupervisor(`
+    start_process php-fpm bash -c 'sleep 5'
+    calls=0
+    php() { calls=$((calls+1)); ((calls >= 3)); }
+    sleep() { :; }
+    wait_for_fpm "\${pids[0]}"
+    echo "probe_count=$calls"
+    start_process nginx bash -c 'exit 7'
+    supervise
+  `)
+  assert.equal(ready.status, 1, ready.error?.message ?? ready.stderr)
+  assert.match(ready.stdout, /probe_count=3/)
+  assert.ok(ready.stderr.indexOf('Runtime upstream ready:') < ready.stderr.indexOf('process=nginx'))
+
+  const timeout = runSupervisor(`
+    start_process php-fpm bash -c 'sleep 5'
+    php() { return 1; }
+    sleep() { :; }
+    wait_for_fpm "\${pids[0]}"
+    echo 'must not start nginx'
+  `)
+  assert.equal(timeout.status, 1, timeout.error?.message ?? timeout.stderr)
+  assert.match(timeout.stderr, /process=php-fpm readiness_attempts=30/)
+  assert.doesNotMatch(timeout.stdout, /must not start nginx/)
+})
+test('FPM startup exit is reported with its status before nginx starts', () => {
+  const result = runSupervisor(`
+    start_process php-fpm bash -c 'exit 23'
+    php() { return 1; }
+    wait_for_fpm "\${pids[0]}"
+    echo 'must not start nginx'
+  `)
+  assert.equal(result.status, 1, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /process=php-fpm pid=\d+ exit_code=23;/)
+  assert.doesNotMatch(result.stdout, /must not start nginx/)
+})
+test('scheduler reports the failing tick status without logging command arguments', () => {
+  const script = read('scripts/scheduler.sh').replace('cd /app', ':')
+  const bash = process.platform === 'win32' ? `${process.env.ProgramFiles}/Git/bin/bash.exe` : 'bash'
+  const result = spawnSync(bash, ['-c', `php() { return 17; }\n${script}`], { encoding: 'utf8', timeout: 10000 })
+  assert.equal(result.status, 17, result.error?.message ?? result.stderr)
+  assert.match(result.stderr, /Scheduler tick failed: exit_code=17/)
+})

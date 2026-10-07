@@ -34,25 +34,48 @@ class EmailDigestService
             ->with(['memberships' => fn ($q) => $q->where('status', MembershipStatus::Accepted->value)])
             ->get();
 
+        // Préchargement groupé : 1 requête d'annonces + 1 requête de
+        // notifications pour tout le lot, au lieu de 2 requêtes par
+        // utilisateur (2N+1 auparavant).
+        $classIdsByUser = [];
+        $userIdsByClass = [];
+        foreach ($students as $user) {
+            $classIds = $user->isStudent() ? $user->memberships->pluck('classroom_id') : collect();
+            $classIdsByUser[$user->id] = $classIds;
+            foreach ($classIds as $classId) {
+                $userIdsByClass[$classId][] = $user->id;
+            }
+        }
+        $announcementsByClass = $userIdsByClass === [] ? collect()
+            : Announcement::whereIn('classroom_id', array_keys($userIdsByClass))
+                ->where('created_at', '>=', $since)
+                ->with('classroom:id,name')
+                ->orderByDesc('pinned')
+                ->orderByDesc('created_at')
+                ->get()
+                ->groupBy('classroom_id');
+        $notificationsByUser = AppNotification::whereIn('user_id', $students->pluck('id'))
+            ->where('created_at', '>=', $since)
+            ->orderBy('id')
+            ->get()
+            ->groupBy('user_id');
+
         foreach ($students as $student) {
             $preferences = $student->notification_preferences ?? [];
             if (($preferences['email_digest'] ?? true) === false) {
                 continue;
             }
-            $classIds = $student->isStudent() ? $student->memberships->pluck('classroom_id') : collect();
+            $classIds = $classIdsByUser[$student->id];
 
-            $announcements = Announcement::whereIn('classroom_id', $classIds)
-                ->where('created_at', '>=', $since)
-                ->with('classroom:id,name')
-                ->orderByDesc('pinned')
-                ->orderByDesc('created_at')
-                ->get();
+            $announcements = $classIds->isEmpty() ? collect()
+                : $classIds->flatMap(fn ($classId) => $announcementsByClass->get($classId, collect()))
+                    ->sortBy([['pinned', 'desc'], ['created_at', 'desc']]);
             if (($preferences['types'][NotificationService::ANNOUNCEMENT_PUBLISHED] ?? true) === false) {
                 $announcements = collect();
             }
 
             $lines = $announcements->map(fn (Announcement $a) => "- [{$a->classroom?->name}] {$a->title}");
-            $notifications = AppNotification::where('user_id', $student->id)->where('created_at', '>=', $since)->get();
+            $notifications = $notificationsByUser->get($student->id, collect());
             foreach ($notifications as $notification) {
                 if (($preferences['types'][$notification->type] ?? true) === false
                     || ($student->isStudent() && $notification->type === NotificationService::ANNOUNCEMENT_PUBLISHED)) {

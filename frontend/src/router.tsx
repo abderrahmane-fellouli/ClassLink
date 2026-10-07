@@ -4,6 +4,7 @@ import { AppShell } from './components/AppShell'
 import { useAuth } from './context/AuthContext'
 import { useI18n } from './i18n'
 import { Btn } from './components/UI'
+import { SchoolWorkspace, ModuleSpace, OfficialGradeEditor, PersonalGradesScreen, SchoolMessagesScreen, SchoolThreadScreen } from './screens/SchoolScreens'
 import {
   HomeScreen,
   LoginScreen,
@@ -12,7 +13,6 @@ import {
   PendingScreen,
 } from './screens/PublicScreens'
 import {
-  StudentDashboard,
   MyClassesScreen,
   StudentClassScreen,
   QuizAttemptScreen,
@@ -28,7 +28,6 @@ import {
   TeacherDashboard,
   TeacherRequestsScreen,
   ClassProgressScreen,
-  CreateClassScreen,
 } from './screens/TeacherScreens'
 import {
   TeacherClassScreen,
@@ -45,6 +44,14 @@ import {
 } from './screens/AdminScreens'
 
 export const router = createBrowserRouter([
+  ...[
+    { path: '/app/school', element: <SchoolWorkspace/>, roles: ['student', 'teacher', 'admin'] },
+    { path: '/app/school/offerings/:offeringId', element: <ModuleSpace/>, roles: ['student', 'teacher'] },
+    { path: '/app/school/assessments/:id', element: <OfficialGradeEditor/>, roles: ['teacher'] },
+    { path: '/app/school/grades', element: <PersonalGradesScreen/>, roles: ['student'] },
+    { path: '/app/school/messages', element: <SchoolMessagesScreen/>, roles: ['student', 'teacher', 'admin'] },
+    { path: '/app/school/messages/:id', element: <SchoolThreadScreen/>, roles: ['student', 'teacher', 'admin'] },
+  ].map(r => ({ path: r.path, element: <ProtectedRoute roles={r.roles as ('student' | 'teacher' | 'admin')[]}><AppShell>{r.element}</AppShell></ProtectedRoute> })),
   { path: '/', element: <HomeScreen/> },
   { path: '/login', element: <GuestRoute><LoginScreen/></GuestRoute> },
   { path: '/auth/microsoft/callback', element: <MicrosoftCallbackScreen/> },
@@ -184,7 +191,7 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute roles={['teacher']}>
         <AppShell>
-          <CreateClassScreen/>
+          <Navigate to="/app/school" replace/>
         </AppShell>
       </ProtectedRoute>
     ),
@@ -330,10 +337,7 @@ function NotFoundScreen() {
 }
 
 function RoleHome() {
-  const { role } = useAuth()
-  if (role === 'teacher') return <TeacherDashboard/>
-  if (role === 'admin') return <AdminDashboard/>
-  return <StudentDashboard/>
+  return <SchoolWorkspace/>
 }
 
 function RoleClasses() {

@@ -14,9 +14,9 @@ function navFor(role: Role): NavEntry[] {
     return [
       { to: '/app', labelKey: 'nav.dashboard', icon: <Icons.Home/>, end: true },
       { to: '/app/classes', labelKey: 'nav.classes', icon: <Icons.Class/> },
+      { to: '/app/school', labelKey: 'nav.school', icon: <Icons.Book/> },
       { to: '/app/requests', labelKey: 'nav.requests', icon: <Icons.Bell/> },
       { to: '/app/progression', labelKey: 'nav.progression', icon: <Icons.Chart/> },
-      { to: '/app/classes/new', labelKey: 'nav.createClass', icon: <Icons.Plus/> },
       { to: '/app/profile', labelKey: 'nav.profile', icon: <Icons.User/> },
     ]
   }
@@ -25,6 +25,7 @@ function navFor(role: Role): NavEntry[] {
     return [
       { to: '/app/admin', labelKey: 'nav.adminOverview', icon: <Icons.Chart/>, end: true },
       { to: '/app/admin/users', labelKey: 'nav.adminUsers', icon: <Icons.Users/> },
+      { to: '/app/school', labelKey: 'nav.school', icon: <Icons.Book/> },
       { to: '/app/admin/classes', labelKey: 'nav.classes', icon: <Icons.Class/> },
       { to: '/app/admin/ai', labelKey: 'nav.adminAi', icon: <Icons.Cpu/> },
       { to: '/app/admin/audit', labelKey: 'nav.adminAudit', icon: <Icons.Log/> },
@@ -35,6 +36,7 @@ function navFor(role: Role): NavEntry[] {
   return [
     { to: '/app', labelKey: 'nav.dashboard', icon: <Icons.Home/>, end: true },
     { to: '/app/classes', labelKey: 'nav.classes', icon: <Icons.Class/> },
+    { to: '/app/school', labelKey: 'nav.school', icon: <Icons.Book/> },
     { to: '/app/deadlines', labelKey: 'nav.deadlines', icon: <Icons.Calendar/> },
     { to: '/app/partners', labelKey: 'nav.partners', icon: <Icons.Heart/> },
     { to: '/app/progression', labelKey: 'nav.progression', icon: <Icons.Chart/> },
@@ -50,7 +52,7 @@ function roleLabelKey(role: Role | null) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, role, signOut, updateProfile } = useAuth()
+  const { user, role, signOut, updateProfile, retryError, refresh } = useAuth()
   const { t, locale, setLocale, formatRelative } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
@@ -149,6 +151,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-dvh">
+      {retryError && <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-white border rounded-lg p-3 shadow-lg"><Alert type="warning" message={retryError}/><button className="min-h-11 px-3 text-[var(--primary)]" onClick={() => void refresh()}>{t('common.retry')}</button></div>}
       <aside
         className="app-sidebar hidden md:flex flex-col"
         style={{ background: 'var(--sidebar)' }}
@@ -282,6 +285,11 @@ function NotificationPanel({
               key={item.id}
               onClick={() => {
                 if (!item.is_read) onMarkRead(item.id)
+                const target = item.payload?.url
+                if (typeof target === 'string' && /^\/app\/(?:school(?:\/grades|\/messages\/\d+)?|assignments\/\d+)$/.test(target)) {
+                  onNavigate(target)
+                  return
+                }
                 const classroomId = (item.payload?.classroom_id ?? null) as number | null
                 if (classroomId) onNavigate(`/app/classes/${classroomId}`)
                 else onClose()
@@ -348,9 +356,32 @@ export function describeNotification(item: NotificationLike, t: Translate): stri
     case 'assignment_published':
       return t('notif.assignment.published', { title: field('title'), class: field('classroom_name') })
     case 'graded':
-      return t('notif.assignment.graded', { grade: field('grade') })
+      return t('school.submissionReviewed')
+    case 'official_grade_published':
+      return t('school.gradeAvailable')
+    case 'school_message_received':
+      return t('school.messageAvailable')
     case 'ai_job_finished':
       return t('notif.ai.finished', { status: t(['done', 'succeeded'].includes(field('status')) ? 'status.done' : field('status') === 'failed' ? 'status.failed' : 'status.processing') })
+    case 'teaching_assignment_changed':
+      return t(field('action') === 'revoked' ? 'notif.teaching.revoked' : 'notif.teaching.assigned', {
+        class: field('classroom_name'),
+        module: field('module_name'),
+      })
+    case 'assignment_request_received':
+      return t('notif.assignment.request', {
+        name: field('teacher_name'),
+        module: field('module_name'),
+        class: field('classroom_name'),
+      })
+    case 'delegate_changed':
+      return t(field('action') === 'revoked' ? 'notif.delegate.revoked' : 'notif.delegate.appointed', {
+        class: field('classroom_name'),
+      })
+    case 'resource_published':
+      return t('notif.resource.published', { title: field('title'), class: field('classroom_name') })
+    case 'deadline_changed':
+      return t('notif.deadline.changed', { title: field('title'), class: field('classroom_name') })
     default:
       return t('notif.unknown')
   }

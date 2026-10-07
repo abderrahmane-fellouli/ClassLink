@@ -97,6 +97,7 @@ class AssignmentController extends Controller
         // F-DEV-01 / RG-06 : la creation d'un devoir est une publication —
         // seuls les membres ACCEPTES sont notifies. `members()` charge deja la
         // relation `student`.
+        if (! $classroom->is_official || $assignment->publication_status === 'published') {
         $this->notifications->notifyMany(
             $classroom->members()->get()->pluck('student'),
             NotificationService::ASSIGNMENT_PUBLISHED,
@@ -108,6 +109,7 @@ class AssignmentController extends Controller
                 'due_at' => $assignment->due_at?->toIso8601String(),
             ]
         );
+        }
 
         return response()->json(new AssignmentResource($assignment), 201);
     }
@@ -124,6 +126,27 @@ class AssignmentController extends Controller
         ]);
 
         $assignment->update($data);
+
+        // RG-06 : seul un changement EFFECTIF de date limite notifie les
+        // membres acceptes (aucune notification sur simple resauvegarde, ni
+        // sur un devoir officiel non publie/pace hors service).
+        if ($assignment->wasChanged('due_at')) {
+            $classroom = $assignment->classroom;
+            if (! $classroom->is_official || $assignment->publication_status === 'published') {
+                $this->notifications->notifyMany(
+                    $classroom->members()->get()->pluck('student'),
+                    NotificationService::DEADLINE_CHANGED,
+                    [
+                        'assignment_id' => $assignment->id,
+                        'title' => $assignment->title,
+                        'classroom_id' => $classroom->id,
+                        'classroom_name' => $classroom->name,
+                        'due_at' => $assignment->due_at?->toIso8601String(),
+                        'url' => '/app/assignments/'.$assignment->id,
+                    ]
+                );
+            }
+        }
 
         return new AssignmentResource($assignment->fresh());
     }
@@ -203,7 +226,6 @@ class AssignmentController extends Controller
 
         $this->notifications->notify($submission->student, NotificationService::GRADED, [
             'assignment_id' => $submission->assignment_id,
-            'grade' => $submission->grade,
         ]);
 
         return new SubmissionResource($submission->fresh('student'));

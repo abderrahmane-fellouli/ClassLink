@@ -1,5 +1,39 @@
 # API Reference — ClassLink 1.0
 
+## Institutional extension and superseded class ownership
+
+The new authenticated routes are defined in `backend/routes/school.php` and use
+the same bearer/active-account/locale boundary. `POST /api/classes` is now
+admin-only official group creation (year/code/name/filière/level); teachers use
+assignment/setup requests and cannot self-authorize by creating a class copy.
+Existing record IDs and legacy workflows remain during reviewed reconciliation.
+See `docs/SCHOOL_MODEL_HANDOFF.md` for permissions, privacy and migration limits.
+
+Key routes:
+
+| Workflow | Routes |
+|---|---|
+| Workspace / setup | `GET /school`, `POST /school/years`, `/school/groups`, `/school/modules`, `/school/groups/{group}/offerings` |
+| Teacher assignments | `POST /school/offerings/{offering}/teachers`, `DELETE /school/teaching-assignments/{assignment}` |
+| Missing assignments | `/school/assignment-requests`, `POST /school/setup-requests`, `/school/assignment-requests/{assignment}/resolve` |
+| Coordinator / admissions | `PUT /school/groups/{group}/coordinator`, `/roster`, `/requests`, `/enrollments`, `/school/memberships/{membership}/decision` |
+| Roster preview / commit | `/school/groups/{group}/roster-imports/preview`, `/commit` (stable identifier/email conflicts fail closed) |
+| Transfer / delegates | `/school/groups/{group}/enrollments/{student}/transfer`, `/school/groups/{group}/delegates`, `DELETE /school/delegates/{delegate}` |
+| Existing teaching tools | `/school/offerings/{offering}/tools/{kind}` and bound-record actions; kinds materials/announcements/assignments/quizzes/flashcards |
+| Official assessments | `/school/offerings/{offering}/assessments`, `/school/assessments/{assessment}` |
+| Grades | `/draft`, `/template?format=xlsx\|csv`, `/imports/preview`, `/imports/commit`, `/publish`, `/correction`, `/roster-reconcile` under the assessment |
+| Personal results | `/school/my-grades`, `/export`, `/{assessment}` and `/{assessment}/contacts`; always current user's published results |
+| Private communication | `/school/threads`, `/{thread}`, `/{thread}/messages`, `/{thread}/resolve` |
+| Audience announcements | `/school/notices/preview` then `/publish`; audience changes require another preview |
+| Private reports | `/school/support-contacts`, `/school/threads/{thread}/report`, `/school/reports`; assigned admin sees only reporter summary, not hidden message history |
+
+All routes above are under `/api`. Write versions are optimistic integers;
+imports use actor-bound UUID batches with expiry. 409 means reload/reconcile,
+422 blocks the entire commit, 410 requires new preview. Private grades/messages
+use `Cache-Control: private, no-store`. No endpoint automatically computes or
+certifies institutional averages, grants admin grading rights, or sends real
+messages during local verification.
+
 Base path: `/api`. All endpoints (except public auth + internal digest/prune) require `Authorization: Bearer <token>` header. API is stateless (no cookies). Locale applied via `Accept-Language`/profile or request context; validation/errors localized (FR/EN). Role/policy checks enforced server-side (§12, §16).
 
 ## Conventions
@@ -138,6 +172,30 @@ See `backend/app/Http/Resources/*` for exact fields.
 - 422 validation: `{ "message": "Données invalides.", "errors": {...} }`
 - 429 too_many_requests: `{ "message": "...", "retry_after": ... }` (headers may include Retry-After)
 - 503 ai_unavailable: `{ "message": "...", "manual_fallback": true, "attempts": ... }`
+- 507 storage_capacity_reached: the total stored volume reached
+  `CLASSLINK_STORAGE_LIMIT_BYTES` (9 GiB by default). Returned **before** any write
+  and before any record is created, so no file and no row is left behind:
+
+```json
+{
+  "message": "Espace de stockage atteint (9 Gio). Les envois de fichiers sont temporairement suspendus ; espacez un envoi existant ou réessayez plus tard.",
+  "context": {
+    "reason": "storage_capacity_reached",
+    "kind": "material",
+    "limit_bytes": 9663676416,
+    "used_bytes": 9663510520,
+    "requested_bytes": 4096,
+    "remaining_bytes": 0
+  }
+}
+```
+
+  `message` follows the caller's locale (FR/EN, from the user profile). Applies to
+  `POST /api/classes/{classroom}/materials` (file type only),
+  `POST /api/assignments/{assignment}/submissions` and
+  `POST /api/classes/{classroom}/ai/generate`. Link materials write nothing to
+  storage and are unaffected. See `docs/DEPLOYMENT.md` § "Storage Ceiling" for the
+  accounting and consistency guarantees.
 
 ## Throttles (configurable — `config/classlink.php`)
 

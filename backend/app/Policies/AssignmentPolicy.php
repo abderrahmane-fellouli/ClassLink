@@ -17,13 +17,13 @@ class AssignmentPolicy
     /** F-DEV-01 : le proprietaire de la classe cree et modifie les devoirs. */
     public function create(User $user, Classroom $classroom): bool
     {
-        return $classroom->isOwnedBy($user) && ! $classroom->isReadOnly();
+        return $user->isTeacher() && $classroom->isOwnedBy($user) && ! $classroom->isReadOnly();
     }
 
     /** L'enseignant lit un devoir meme apres archivage de la classe. */
     private function manage(User $user, Classroom $classroom): bool
     {
-        return $classroom->isOwnedBy($user);
+        return $user->isTeacher() && $classroom->isOwnedBy($user);
     }
 
     public function update(User $user, $assignment): bool
@@ -33,7 +33,7 @@ class AssignmentPolicy
 
     public function delete(User $user, $assignment): bool
     {
-        return $this->update($user, $assignment);
+        return $this->update($user, $assignment) && ! $assignment->submissions()->exists();
     }
 
     /** F-DEV-02 : l'étudiant dépose son propre rendu. */

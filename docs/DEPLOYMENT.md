@@ -51,6 +51,7 @@ Set the following (required where marked):
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION` | if SMTP | — | Brevo: see §3. |
 | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | if MS Entra | — | `AZURE_REDIRECT_URI` must point to `https://api.classlink.ma/api/auth/microsoft/callback`. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT`, `AWS_USE_PATH_STYLE_ENDPOINT` | if S3 | — | S3-compatible (MinIO/R2) supported via `league/flysystem-aws-s3-v3`. Private bucket only. |
+| `CLASSLINK_STORAGE_LIMIT_BYTES` | yes (S3) | `9663676416` | Storage ceiling in bytes (9 GiB). Uploads past the ceiling are refused with HTTP 507 before any write. Must be a positive integer; the production preflight rejects it otherwise. See §9 "Storage ceiling". |
 | `AI_PROVIDER_1_KEY`, `AI_PROVIDER_2_KEY`, `AI_PROVIDER_3_KEY` | optional | — | Stored in env only (never DB). Providers configured in `ai_providers` table (admin). |
 | `AI_PROVIDER_*_BASE_URL`, `AI_PROVIDER_*_MODEL` | optional | — | Override endpoints/models. |
 | `DEV_AUTH_ENABLED` | no | `false` | Must remain `false` in production (enforced: `enabled` only when `APP_ENV!==production`). |
@@ -305,6 +306,112 @@ An unhealthy Docker healthcheck alone does not restart Docker; child loss exits
 the container and `restart: unless-stopped` restarts it, while Render observes
 `/ready`. Alerting and operator response remain necessary for a wedged process.
 
+### Storage Ceiling
+
+Cloudflare R2 is billed per stored byte, so the bucket needs an upper bound.
+ClassLink enforces `CLASSLINK_STORAGE_LIMIT_BYTES` (9 GiB = 9 663 676 416 bytes by
+default) as an **application-side guard**, in `App\Services\StorageUsageService`.
+
+Every upload goes through `MaterialStorageService`, which reserves capacity
+*before* touching S3 and settles it afterwards. Two tables hold the state:
+
+- `storage_usage` — a single row carrying `reserved_bytes` (uploads in flight)
+  and `used_bytes` (files actually stored).
+- `storage_objects` — the registry of ClassLink-managed objects
+  (disk, path, size, kind, owner).
+
+The migration starts with an empty registry. Existing bucket objects are not
+automatically imported: on an existing deployment, inventory and register their
+sizes before relying on the ceiling for total managed storage. A fresh empty
+bucket needs no historical import.
+
+**Why a reservation, not a counter check.** An S3 write cannot join a SQL
+transaction, so "check then write" is never atomic: two simultaneous uploads
+both read "8.8 GiB used, 0.2 GiB free" and both proceed. Instead the guard is a
+single conditional `UPDATE`:
+
+```sql
+UPDATE storage_usage SET reserved_bytes = reserved_bytes + :n
+ WHERE id = 1 AND used_bytes + reserved_bytes + :n <= :limit
+```
+
+The ceiling test lives inside the `WHERE` clause, so the database evaluates it
+while holding the row lock. Under PostgreSQL, the second concurrent update waits,
+then re-reads the freshly committed row and fails its own condition. No advisory
+locks or cache counters are needed. Handled write failures release their
+reservation; process crashes require the recovery procedure below.
+
+**Why it never scans the bucket.** A bucket listing costs one paginated request
+per 1000 keys and is unacceptable on every upload. Usage comes from
+`storage_objects` instead, which is also what makes the counter repairable:
+
+- upload: reserve → write to S3 → `commitReservation()` converts reserved into
+  used and inserts the registry row in one transaction;
+- failed write (exception *or* a `false` result from the driver): reservation
+  released, so a failed upload consumes nothing;
+- business rollback after a successful write: the S3 object cannot be rolled back
+  by SQL, so it is **compensated**. `MaterialStorageService` registers the delete
+  through `StorageUsageService::onRollback()`, wired to Laravel's
+  `TransactionRolledBack` event. If the transaction that created the
+  `materials`/`submissions`/`ai_jobs` row rolls back, the object is deleted from
+  the bucket. Cleanup follows savepoint boundaries and survives inner commits
+  until the outer transaction completes. Cleanup failures are reported and
+  require bucket-side intervention;
+- delete: delete from S3 first, then `forget()` releases the registered bytes.
+  A `false` result or exception retains accounting and lets the caller retry.
+  If database cleanup fails after successful deletion, accounting conservatively
+  overcounts; `--prune` can repair it;
+- replacement: current uploads use unique UUID paths. Delete the old object
+  through the storage service before releasing its capacity; each registered
+  `(disk, path)` remains unique.
+
+**Drift recovery.** Reconciliation repairs the counter from registered objects
+and deliberately preserves reservations, since they may belong to active uploads.
+A process kill can leave a committed reservation without a registry row. If the
+upload was inside a SQL transaction, that reservation can instead roll back
+while the S3 object survives. SQL and S3 do not provide a shared transaction, so
+the application ceiling is not an absolute physical-bucket guarantee across
+process kills or failed rollback cleanup.
+
+```bash
+php artisan classlink:storage-reconcile            # recompute from the registry
+php artisan classlink:storage-reconcile --prune    # + drop rows missing on disk
+php artisan classlink:storage-reconcile --check    # exit 1 on drift (for CI)
+php infra/operations.php storage                  # operator alert at 90% / 100%
+```
+
+`--prune` can only correct drift toward "too many objects counted", since it
+calls `exists()` on the configured disk. Detecting an object present in the
+bucket but absent from the registry would require a full listing, which is
+deliberately excluded from routine reconciliation. After a crash, pause uploads
+and drain workers, compare bucket inventory against the registry, and remove or
+register untracked objects before releasing stale reservations. Only then run:
+
+```bash
+php artisan classlink:storage-reconcile --release-stale-reservations
+```
+
+The command requires explicit confirmation and defaults to refusing the reset.
+It clears all reservations, not only those known to be stale; running it during
+an upload or before accounting for surviving objects can defeat the ceiling.
+Ordinary reconciliation never performs this reset. Provider-side inventory,
+alerts, and narrowly scoped lifecycle rules can support recovery; expiration
+must respect the retention requirements of legitimate course files.
+
+**What this does not cover.** The ceiling bounds what ClassLink writes through
+the application:
+
+- it does not count objects added to the bucket outside ClassLink;
+- it does not match R2 billing, which lags and reflects operations/lifecycle;
+- failed deletions and untracked crash leftovers require recovery;
+- a limit above the plan's actual included storage is a usage limit, not a
+  billing cap — configure provider-side budget alerts as well.
+
+**Client behaviour.** Over the ceiling, uploads are refused with HTTP 507
+(Insufficient Storage) and a localized FR/EN message before any write, so no
+record or file is created. The limit per file stays `classlink.files.max_kb`
+(10 MB), enforced separately; an oversized *individual* file still returns 422.
+
 ### Monitoring
 
 Enable `PRODUCTION_MONITORING_ENABLED=true` and set the API/frontend URL variables.
@@ -322,6 +429,9 @@ notifications and test one controlled outage in staging.
   to flag enabled AI providers at 90% daily quota. Configure provider-native quota
   alerts as well. No permanent admin bearer token or new unauthenticated metrics
   endpoint was added just for monitoring.
+- Run `php infra/operations.php storage` to alert on storage occupancy (fails at
+  90% and 100% of `CLASSLINK_STORAGE_LIMIT_BYTES`). It reads the local registry,
+  so it costs no bucket listing and no credentials.
 - Configure database capacity/expiry, object-storage usage/billing, Brevo daily
   email limit and Entra secret-expiry alerts in the chosen provider dashboards.
   Thresholds, recipients and retention are human configuration, not completed

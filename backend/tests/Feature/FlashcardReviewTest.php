@@ -281,4 +281,51 @@ class FlashcardReviewTest extends TestCase
             ->postJson("/api/flashcard-decks/{$deck->id}/cards/{$card->id}/review", ['known' => true])
             ->assertOk();
     }
+
+    // -- Ajout d'une carte a un deck existant ---------------------------------
+
+    public function test_the_owner_teacher_can_append_a_card_to_a_deck(): void
+    {
+        [, $teacher, , $deck] = $this->publishedDeck();
+
+        $this->actingAs($teacher)
+            ->postJson("/api/flashcard-decks/{$deck->id}/cards", ['front' => 'Nouvelle question', 'back' => 'Nouvelle réponse'])
+            ->assertCreated()
+            ->assertJsonPath('data.position', 2);
+
+        $this->assertDatabaseHas('flashcards', ['deck_id' => $deck->id, 'front' => 'Nouvelle question', 'position' => 2]);
+        $this->assertSame(3, $deck->cards()->count());
+    }
+
+    public function test_a_first_card_starts_at_position_zero(): void
+    {
+        [$classroom, $teacher] = $this->classWithMember();
+        $deck = FlashcardDeck::create(['classroom_id' => $classroom->id, 'title' => 'Vide', 'source' => 'manual', 'status' => 'draft']);
+
+        $this->actingAs($teacher)
+            ->postJson("/api/flashcard-decks/{$deck->id}/cards", ['front' => 'F', 'back' => 'B'])
+            ->assertCreated()
+            ->assertJsonPath('data.position', 0);
+    }
+
+    public function test_a_student_cannot_append_a_card(): void
+    {
+        [, , $student, $deck] = $this->publishedDeck();
+
+        $this->actingAs($student)
+            ->postJson("/api/flashcard-decks/{$deck->id}/cards", ['front' => 'X', 'back' => 'Y'])
+            ->assertForbidden();
+
+        $this->assertSame(2, $deck->cards()->count());
+    }
+
+    public function test_appending_a_card_requires_front_and_back(): void
+    {
+        [, $teacher, , $deck] = $this->publishedDeck();
+
+        $this->actingAs($teacher)
+            ->postJson("/api/flashcard-decks/{$deck->id}/cards", [])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['front', 'back']);
+    }
 }

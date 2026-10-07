@@ -28,7 +28,12 @@ class ContentController extends Controller
     public function myAnnouncements(Request $request): JsonResponse
     {
         $classes = $request->user()->acceptedClassrooms()->where('status', 'active')->select('id');
-        $announcements = \App\Models\Announcement::whereIn('classroom_id', $classes)
+        $announcements = \App\Models\Announcement::where(function ($q) use ($classes, $request) {
+            $q->whereIn('classroom_id', $classes)->orWhere(function ($extra) use ($request) {
+                $extra->whereIn('offering_id', \Illuminate\Support\Facades\DB::table('module_access_grants')->where('student_id', $request->user()->id)->whereNull('revoked_at')->where('expires_at', '>', now())->select('offering_id'))
+                    ->whereHas('classroom', fn ($c) => $c->where('status', 'active'));
+            });
+        })
             ->with(['author:id,display_name', 'classroom:id,name'])
             ->orderByDesc('pinned')->orderByDesc('created_at')->orderByDesc('id')->limit(20)->get();
         return response()->json(['data' => AnnouncementResource::collection($announcements)]);
@@ -59,6 +64,7 @@ class ContentController extends Controller
      */
     public function storeMaterial(Request $request, Classroom $classroom): JsonResponse
     {
+        abort_unless($request->user()->isTeacher(), 403);
         $this->authorize('view', $classroom);
 
         // RG-10 : une classe archivée est en lecture seule.
@@ -67,6 +73,7 @@ class ContentController extends Controller
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'chapter' => ['nullable', 'string', 'max:255'],
+            'category' => ['nullable', 'in:course,exercise,correction,document,image,link'],
             'type' => ['nullable', 'string', 'in:file,link'],
             'url' => ['nullable', 'required_if:type,link', 'url', 'max:2048'],
             'file' => ['nullable', 'required_if:type,file', 'file'],
@@ -77,6 +84,7 @@ class ContentController extends Controller
         if ($type === 'link') {
             $material = Material::create([
                 'classroom_id' => $classroom->id,
+                'category' => $data['category'] ?? 'link',
                 'title' => $data['title'],
                 'chapter' => $data['chapter'] ?? null,
                 'type' => 'link',
@@ -88,6 +96,7 @@ class ContentController extends Controller
 
             $material = Material::create([
                 'classroom_id' => $classroom->id,
+                'category' => $data['category'] ?? (str_starts_with($stored['mime'], 'image/') ? 'image' : 'document'),
                 'title' => $data['title'],
                 'chapter' => $data['chapter'] ?? null,
                 'type' => 'file',
@@ -98,6 +107,19 @@ class ContentController extends Controller
                 'uploaded_by' => $request->user()->id,
             ]);
         }
+
+        // F-CON-01 / RG-06 : la creation d'une ressource est une publication —
+        // seuls les membres ACCEPTES sont notifies, une seule fois, a la creation.
+        $this->notifications->notifyMany(
+            $classroom->members()->get()->pluck('student'),
+            NotificationService::RESOURCE_PUBLISHED,
+            [
+                'material_id' => $material->id,
+                'title' => $material->title,
+                'classroom_id' => $classroom->id,
+                'classroom_name' => $classroom->name,
+            ]
+        );
 
         return response()->json(new MaterialResource($material->load('uploader')), 201);
     }
@@ -110,6 +132,7 @@ class ContentController extends Controller
         $data = $request->validate([
             'title' => ['sometimes', 'required', 'string', 'max:255'],
             'chapter' => ['nullable', 'string', 'max:255'],
+            'category' => ['nullable', 'in:course,exercise,correction,document,image,link'],
         ]);
 
         $material->update($data);
@@ -122,7 +145,7 @@ class ContentController extends Controller
     {
         $this->authorize('delete', $material);
 
-        $this->storage->delete($material->path_or_url);
+        if (! $material->isLink()) { $this->storage->delete($material->path_or_url); }
         $material->delete();
 
         return response()->noContent();

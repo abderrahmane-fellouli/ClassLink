@@ -54,7 +54,7 @@ class ProcessAiGeneration implements ShouldQueue
         }
 
         try {
-            if ($job->classroom->isReadOnly() || $job->classroom->teacher_id !== $job->teacher_id) {
+            if (! $job->teacher || ! $job->teacher->is_active || ! $job->teacher->isTeacher() || $job->classroom->isReadOnly() || $job->classroom->teacher_id !== $job->teacher_id) {
                 throw new PdfExtractionException('Class is archived or ownership has changed.');
             }
             $text = $this->extractedText ?? $this->extractText($job, $pdf);
@@ -62,6 +62,11 @@ class ProcessAiGeneration implements ShouldQueue
             $result = $ai->generate($text, $job->file_hash, $job->target->value);
 
             DB::transaction(function () use ($job, $result) {
+                $teacher = \App\Models\User::whereKey($job->teacher_id)->lockForUpdate()->first();
+                $classroom = \App\Models\Classroom::whereKey($job->classroom_id)->lockForUpdate()->first();
+                if (! $teacher || ! $teacher->is_active || ! $teacher->isTeacher() || ! $classroom || $classroom->isReadOnly() || $classroom->teacher_id !== $teacher->id) {
+                    throw new PdfExtractionException('Teaching access changed before draft creation.');
+                }
                 if ($job->target === AiTarget::Flashcard) {
                     $this->createFlashcardDeck($job, $result['data']);
                 } else {
@@ -105,7 +110,7 @@ class ProcessAiGeneration implements ShouldQueue
                 'manual_fallback' => true,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Génération IA en échec', ['job_id' => $job->id, 'error' => $e->getMessage()]);
+            Log::error('Génération IA en échec', ['job_id' => $job->id, 'exception_class' => $e::class]);
 
             $this->fail($job, 'Erreur inattendue lors de la génération.');
 

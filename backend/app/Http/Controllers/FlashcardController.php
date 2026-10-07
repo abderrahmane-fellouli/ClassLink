@@ -147,6 +147,38 @@ class FlashcardController extends Controller
     }
 
     /**
+     * Ajout d'une carte a un deck existant. F-QUI-08.
+     *
+     * `FlashcardDeckPolicy::update` impose deja proprietaire + classe non
+     * archivee, donc aucun etudiant ne peut enrichir un deck. La carte est
+     * ecrite par un humain : comme `updateCard`, elle leve le verrou IA
+     * (`markReviewed`) — la relecture devient caduque apres chaque ajout.
+     */
+    public function storeCard(Request $request, FlashcardDeck $deck): JsonResponse
+    {
+        $this->authorize('update', $deck);
+
+        $data = $request->validate([
+            'front' => ['required', 'string', 'max:2000'],
+            'back' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $position = $deck->cards()->exists() ? ((int) $deck->cards()->max('position') + 1) : 0;
+        $card = $deck->cards()->create($data + ['position' => $position]);
+        $deck->markReviewed();
+
+        return response()->json([
+            'data' => [
+                'id' => $card->id,
+                'front' => $card->front,
+                'back' => $card->back,
+                'position' => $card->position,
+                'deck_reviewed' => (bool) $deck->fresh()->reviewed,
+            ],
+        ], 201);
+    }
+
+    /**
      * Modification du recto/verso d'une carte. F-QUI-08.
      */
     public function updateCard(Request $request, FlashcardDeck $deck, Flashcard $card): JsonResponse

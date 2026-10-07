@@ -61,7 +61,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
     const toDate = (input: string | Date | null | undefined): Date | null => {
       if (!input) return null
-      const date = input instanceof Date ? input : new Date(input)
+      const normalized = typeof input === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(input)
+        ? input.replace(' ', 'T') + 'Z' : input
+      const date = normalized instanceof Date ? normalized : new Date(normalized)
       return Number.isNaN(date.getTime()) ? null : date
     }
 
@@ -71,12 +73,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       t,
       formatDate: input => {
         const date = toDate(input)
-        return date ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date) : '—'
+        return date ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'Africa/Casablanca' }).format(date) : '—'
       },
       formatDateTime: input => {
         const date = toDate(input)
         return date
-          ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+          ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Casablanca' }).format(date)
           : '—'
       },
       formatRelative: input => {

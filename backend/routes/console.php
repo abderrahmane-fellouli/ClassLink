@@ -22,4 +22,6 @@ Artisan::command('inspire', function () {
 Schedule::command('classlink:daily-digest')->dailyAt('07:00');
 Schedule::command('classlink:prune')->dailyAt('03:00');
 Schedule::command('classlink:finalize-attempts')->everyMinute()->withoutOverlapping();
+Schedule::job(new \App\Jobs\DeliverSchoolNotifications)->everyMinute()->withoutOverlapping();
+Schedule::call(fn () => \Illuminate\Support\Facades\DB::table('class_delegates')->whereNotNull('active_slot')->where('ends_at', '<=', now())->update(['active_slot' => null, 'updated_at' => now()]))->name('school:end-expired-delegates')->everyMinute()->withoutOverlapping();
 Schedule::call(fn (AiService $ai) => $ai->resetDailyQuotas())->dailyAt('00:05');

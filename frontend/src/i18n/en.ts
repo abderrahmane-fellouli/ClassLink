@@ -1,7 +1,9 @@
 import type { TranslationKey } from './fr'
+import { schoolEn } from './school'
 
 /** EN — mêmes clés que `fr.ts`, le type interdit toute omission. */
 export const en: Record<TranslationKey, string> = {
+  ...schoolEn,
   'copy.failed': 'The code could not be copied. Retry or copy it manually.',
   'student.latestAnnouncements': 'Latest announcements',
   'progress.fullHistory': 'All my results by quiz',
@@ -65,6 +67,13 @@ export const en: Record<TranslationKey, string> = {
   'preferences.ai_job_finished': 'AI generation',
   'preferences.announcement_published': 'New announcements',
   'preferences.assignment_published': 'New assignments',
+  'preferences.official_grade_published': 'Published grades',
+  'preferences.school_message_received': 'School messages',
+  'preferences.teaching_assignment_changed': 'Teaching assignments',
+  'preferences.assignment_request_received': 'Assignment requests',
+  'preferences.delegate_changed': 'Delegate updates',
+  'preferences.resource_published': 'Published class resources',
+  'preferences.deadline_changed': 'Deadline changes',
   'roster.hint': 'CSV with a required email column (maximum 2 MB). Students must already have an active account.',
   'roster.result': '{{count}} members imported. Check the member list.',
   'admin.transfer': 'Transfer class',
@@ -663,6 +672,13 @@ export const en: Record<TranslationKey, string> = {
   'notif.announcement.published': 'New announcement “{{title}}” in {{class}}.',
   'notif.assignment.published': 'New assignment “{{title}}” in {{class}}.',
   'notif.ai.finished': 'AI generation finished ({{status}}).',
+  'notif.teaching.assigned': 'You now teach {{module}} in {{class}}.',
+  'notif.teaching.revoked': 'Your assignment to teach {{module}} in {{class}} has ended.',
+  'notif.assignment.request': '{{name}} requested the module {{module}} for {{class}}.',
+  'notif.delegate.appointed': 'You were appointed class delegate for {{class}}.',
+  'notif.delegate.revoked': 'Your delegate mandate for {{class}} was revoked.',
+  'notif.resource.published': 'New resource “{{title}}” in {{class}}.',
+  'notif.deadline.changed': 'Deadline changed for “{{title}}” in {{class}}.',
   'notif.unknown': 'New notification',
 
   'error.classArchived': 'This class is archived: its content can no longer be modified.',

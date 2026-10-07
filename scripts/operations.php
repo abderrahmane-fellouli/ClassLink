@@ -32,6 +32,16 @@ try {
             if (config('mail.default') !== 'smtp' || !config('mail.mailers.smtp.password')) {
                 throw new RuntimeException('Configure SMTP before serving production OTP login.');
             }
+            /*
+             * Le plafond de stockage doit etre un entier positif issu de
+             * l'environnement : une valeur absente ou fantaisiste retomberait
+             * silencieusement sur le defaut, ce qui est acceptable en local
+             * mais masque une erreur de configuration en production.
+             */
+            $storageLimit = env('CLASSLINK_STORAGE_LIMIT_BYTES');
+            if (!is_numeric($storageLimit) || (int) $storageLimit <= 0) {
+                throw new RuntimeException('CLASSLINK_STORAGE_LIMIT_BYTES must be a positive integer.');
+            }
         }
         if ((int) config('queue.connections.database.retry_after') <= 900) {
             throw new RuntimeException('DB_QUEUE_RETRY_AFTER must exceed worker timeout (900s).');
@@ -56,6 +66,23 @@ try {
         echo "AI providers at >=90% quota: $nearLimit\n";
         if ($nearLimit > 0) {
             throw new RuntimeException('AI capacity needs review; manual authoring remains available.');
+        }
+    } elseif ($mode === 'storage' && PHP_SAPI === 'cli') {
+        /*
+         * Surveillance du seau R2 : le compteur vient de la base (SUM du
+         * registre), jamais d'un listing du bucket, donc ce controle reste
+         * bon cout meme quand le seau grossit.
+         */
+        $usage = $app->make(App\Services\StorageUsageService::class);
+        $occupied = $usage->occupiedBytes();
+        $limit = $usage->limitBytes();
+        $ratio = $limit > 0 ? $occupied / $limit : 1.0;
+        printf("Storage %.1f%% of %d bytes (%d occupied, %d reserved, %d tracked object(s))\n", $ratio * 100, $limit, $usage->usedBytes(), $usage->reservedBytes(), $usage->objectCount());
+        if ($ratio >= 1.0) {
+            throw new RuntimeException('Storage ceiling reached; uploads are suspended until space is freed.');
+        }
+        if ($ratio >= 0.9) {
+            throw new RuntimeException('Storage above 90%; plan deletions before uploads are refused.');
         }
     } elseif ($mode === 'health') {
         Illuminate\Support\Facades\DB::select('select 1');

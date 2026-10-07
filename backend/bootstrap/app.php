@@ -79,6 +79,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: env('TRUSTED_PROXIES', '*'));
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        $exceptions->report(function (\Throwable $e) {
+            $request = request();
+            if ($request->is('api/school*') || $request->attributes->has('school_offering_id')) {
+                // Query/provider messages and traces can contain grades or private text.
+                \Illuminate\Support\Facades\Log::error('Institutional request failed', [
+                    'exception_class' => $e::class,
+                    'route' => $request->route()?->uri(),
+                ]);
+                return false;
+            }
+        });
         $exceptions->render(function (BusinessRuleException $e, Request $request) {
             SetLocale::apply($request);
             return response()->json(array_filter([
@@ -192,7 +203,11 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return response()->json([
-                'message' => $e->getMessage() ?: __('api.errors.server_error'),
+                'message' => $e->getMessage() ?: match ($e->getStatusCode()) {
+                    403 => __('api.errors.forbidden'), 404 => __('api.errors.not_found'),
+                    409 => __('api.school.conflict'), 410 => __('api.school.expired'),
+                    422 => __('api.school.invalid_import'), default => __('api.errors.server_error'),
+                },
             ], $e->getStatusCode(), $e->getHeaders());
         });
     })->create();

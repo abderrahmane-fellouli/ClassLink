@@ -52,6 +52,9 @@ class FileContentValidator
         'odp' => 'zip',
         'txt' => 'text',
         'csv' => 'text',
+        'png' => 'image',
+        'jpg' => 'image',
+        'jpeg' => 'image',
     ];
 
     /**
@@ -118,6 +121,14 @@ class FileContentValidator
         // 1. Un contenu actif est refusé quoi qu'il en coûte.
         if ($detected !== null && in_array($detected, self::ACTIVE_MIMES, true)) {
             throw $this->refuse($extension, $detected);
+        }
+        if ($family === 'image') {
+            $size = @getimagesizefromstring($content);
+            $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
+            if (! $size || $detected !== $mime || ($size['mime'] ?? null) !== $mime || $size[0] > 4096 || $size[1] > 4096) {
+                throw $this->refuse($extension, $detected);
+            }
+            return;
         }
 
         // 2. Format binaire : la signature doit être celle de l'extension.

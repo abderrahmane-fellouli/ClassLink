@@ -12,7 +12,7 @@ class NotificationResource extends \Illuminate\Http\Resources\Json\JsonResource
         return [
             'id' => $this->id,
             'type' => $this->type,
-            'payload' => $this->payload,
+            'payload' => $this->type === 'graded' ? \Illuminate\Support\Arr::except($this->payload ?? [], ['grade', 'feedback', 'notes']) : $this->payload,
             'read_at' => $this->read_at?->toIso8601String(),
             'is_read' => $this->isRead(),
             'created_at' => $this->created_at?->toIso8601String(),

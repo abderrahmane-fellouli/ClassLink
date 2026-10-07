@@ -356,6 +356,7 @@ export function LoginScreen() {
                 <Icons.Microsoft/>
                 {t('login.microsoft')}
               </a>
+              <p className="text-sm text-[var(--muted-foreground)] mb-4">{t('school.consentHelp')}</p>
 
               <div className="flex items-center gap-3 my-5">
                 <div className="flex-1 h-px bg-[var(--border)]"/>

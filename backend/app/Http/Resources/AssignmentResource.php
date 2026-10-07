@@ -13,6 +13,8 @@ class AssignmentResource extends \Illuminate\Http\Resources\Json\JsonResource
             'id' => $this->id,
             'classroom_id' => $this->classroom_id,
             'title' => $this->title,
+            'offering_id' => $this->offering_id,
+            'publication_status' => $this->publication_status,
             'instructions' => $this->instructions,
             'due_at' => $this->due_at?->toIso8601String(),
             'is_overdue' => $this->hasDeadline() && now()->gt($this->due_at),

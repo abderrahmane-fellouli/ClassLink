@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test infra.test.mjs",
-    "browser": "playwright test -c playwright.config.mjs"
+    "browser": "playwright test -c playwright.config.mjs",
+    "school-pilot": "node school-pilot.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",

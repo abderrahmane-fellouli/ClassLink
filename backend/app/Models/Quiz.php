@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Quiz extends Model
 {
     use HasFactory;
+    use \App\Models\Concerns\ScopedToOffering;
 
     protected $fillable = [
         'classroom_id',

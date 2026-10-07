@@ -47,6 +47,10 @@ class MembershipService
             throw new BusinessRuleException('Code invalide', 404);
         }
 
+        if ($classroom->is_official) {
+            return app(SchoolSetupService::class)->requestEnrollment($student, $classroom);
+        }
+
         $membership = Membership::where('classroom_id', $classroom->id)
             ->where('student_id', $student->id)
             ->first();

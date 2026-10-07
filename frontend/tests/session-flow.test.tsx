@@ -82,6 +82,19 @@ describe('T-24 — déconnexion puis bouton « Précédent »', () => {
     setStoredLocale('fr')
   })
 
+  it('preserves a token during a temporary outage and retries without granting early access', async () => {
+    setToken('synthetic-retry-token')
+    const syntheticTeacher = { ...teacher, email: 'synthetic.teacher@ofppt-edu.ma', display_name: 'Synthetic Teacher' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ message: 'Temporary outage' }, { status: 503 })).mockResolvedValue(jsonResponse(syntheticTeacher)))
+    render(<App/>)
+    expect(await screen.findByText(/serveur est temporairement indisponible/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('role')).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('classlink.token')).toBe('synthetic-retry-token')
+    await userEvent.click(screen.getByRole('button', { name: 'Réessayer' }))
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+    expect(screen.getByTestId('role')).toHaveTextContent('teacher')
+  })
+
   it('redirige vers la connexion au retour arrière, sans réafficher l\'application', async () => {
     // Un jeton valide est present : la page protégée doit d'abord s'afficher.
     setToken('jeton-valide')

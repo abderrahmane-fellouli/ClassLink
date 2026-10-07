@@ -12,6 +12,26 @@
 */
 
 return [
+    'school' => [
+        'archived' => 'Ce groupe ou cette année est archivé.',
+        'verified_teacher' => 'Sélectionnez un formateur actif validé par l’administration.',
+        'primary_group' => 'Ce stagiaire possède déjà un groupe principal pour cette année. Utilisez le transfert.',
+        'delegate_limit' => 'Deux délégués actifs au maximum par groupe.',
+        'missing_assignments' => 'Attribuez au moins un module à un formateur avant activation.',
+        'empty_roster' => 'Validez au moins un stagiaire avant de créer une évaluation.',
+        'version_conflict' => 'Ces notes ont changé. Rechargez avant de recommencer.',
+        'roster_changed' => 'La liste des stagiaires a changé. Réconciliez la liste avant publication.',
+        'correction_required' => 'Créez un brouillon de correction avant de modifier des notes publiées.',
+        'invalid_import' => 'Le fichier comporte des erreurs. Aucun changement n’a été enregistré.',
+        'incomplete_grades' => 'Chaque stagiaire doit avoir une note ou un statut explicite (absent, exempté, rattrapage).',
+        'formulas_forbidden' => 'Les formules et macros ne sont pas acceptées dans les fichiers de notes.',
+        'audience_changed' => 'Les destinataires ont changé. Prévisualisez à nouveau avant l’envoi.',
+        'request_exists' => 'Une demande existe déjà pour ce module. Contactez l’administration pour son suivi.',
+        'conflict' => 'Cette action est en conflit avec l’état actuel. Rechargez et vérifiez les informations.',
+        'expired' => 'Cette prévisualisation a expiré. Recommencez la prévisualisation.',
+        'year_frozen' => 'Une année close ne garde que son libellé modifiable.',
+        'template_instructions' => 'Ne changez pas les identifiants/contexte. Maximum : :max. Statuts : graded, ungraded, absent, exempt, makeup. Décimales : virgule ou point. Import = brouillon ; publication séparée. Ne collez aucune formule.',
+    ],
     'digest' => [
         'subject' => 'ClassLink — résumé du jour',
         'heading' => 'Vos actualités ClassLink :',
@@ -22,6 +42,13 @@ return [
             'partner_request_received' => 'Demande de partenaire', 'partner_request_answered' => 'Réponse du partenaire',
             'ai_job_finished' => 'Actualité de génération IA', 'announcement_published' => 'Annonce',
             'assignment_published' => 'Nouveau devoir',
+            'teaching_assignment_changed' => 'Mise à jour d’attribution pédagogique',
+            'assignment_request_received' => 'Nouvelle demande d’attribution de module',
+            'delegate_changed' => 'Mise à jour des délégués',
+            'official_grade_published' => 'Notes publiées',
+            'school_message_received' => 'Message de l’école',
+            'resource_published' => 'Nouvelle ressource de la classe',
+            'deadline_changed' => 'Date limite modifiée',
         ],
     ],
     'otp' => [
@@ -49,6 +76,7 @@ return [
         'type_not_allowed' => 'Type de fichier non autorisé.',
         'too_large' => 'Fichier trop volumineux (maximum :max Ko).',
         'storage_failed' => 'Le stockage du fichier a échoué.',
+        'storage_capacity_reached' => 'Espace de stockage atteint (:limit). Les envois de fichiers sont temporairement suspendus ; espacez un envoi existant ou réessayez plus tard.',
         'not_found' => 'Fichier introuvable.',
         'no_file' => 'Cette remise ne contient aucun fichier.',
         'content_mismatch' => 'Contenu du fichier invalide : il ne correspond pas au type annoncé.',

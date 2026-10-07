@@ -86,6 +86,81 @@ describe('describeNotification', () => {
     )
   })
 
+  it('translates teaching assignment changes from the backend payload', () => {
+    expect(
+      describeNotification(
+        notification('teaching_assignment_changed', {
+          action: 'assigned',
+          classroom_name: 'G-A3-1',
+          module_name: 'Développement web',
+        }),
+        t,
+      ),
+    ).toContain('Développement web')
+    expect(
+      describeNotification(
+        notification('teaching_assignment_changed', {
+          action: 'revoked',
+          classroom_name: 'G-A3-1',
+          module_name: 'Développement web',
+        }),
+        t,
+      ),
+    ).toContain('G-A3-1')
+  })
+
+  it('translates assignment requests received by admins', () => {
+    const text = describeNotification(
+      notification('assignment_request_received', {
+        teacher_name: 'Sara',
+        classroom_name: 'G-A3-1',
+        module_name: 'Réseaux',
+      }),
+      t,
+    )
+
+    expect(text).toContain('Sara')
+    expect(text).toContain('Réseaux')
+    expect(text).not.toBe(fr['notif.unknown'])
+  })
+
+  it('translates delegate appointments and revocations', () => {
+    expect(
+      describeNotification(
+        notification('delegate_changed', { action: 'appointed', classroom_name: 'G-A3-1' }),
+        t,
+      ),
+    ).not.toBe(fr['notif.unknown'])
+    expect(
+      describeNotification(
+        notification('delegate_changed', { action: 'revoked', classroom_name: 'G-A3-1' }),
+        t,
+      ),
+    ).toContain('G-A3-1')
+  })
+
+  it('translates resource publications', () => {
+    const text = describeNotification(
+      notification('resource_published', { title: 'Cours chapitre 3', classroom_name: 'Maths' }),
+      t,
+    )
+
+    expect(text).toContain('Cours chapitre 3')
+    expect(text).toContain('Maths')
+    expect(text).not.toBe(fr['notif.unknown'])
+  })
+
+  it('translates deadline changes', () => {
+    const text = describeNotification(
+      notification('deadline_changed', { title: 'TP 3', classroom_name: 'Maths' }),
+      t,
+    )
+
+    expect(text).toContain('TP 3')
+    expect(text).toContain('Maths')
+    expect(text).not.toBe(fr['notif.unknown'])
+  })
+
   it('falls back to the generic message for an unknown type', () => {
     expect(describeNotification(notification('something_new'), t)).toBe(fr['notif.unknown'])
   })

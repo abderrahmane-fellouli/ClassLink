@@ -153,9 +153,9 @@ class AuthorizationTest extends TestCase
             ->assertStatus(403);
     }
 
-    public function test_t13_teacher_cannot_create_a_classroom_without_being_checked(): void
+    public function test_t13_teacher_cannot_create_an_official_group_or_self_authorize(): void
     {
-        // Un enseignant peut creer sa classe : le role est verifie, pas l'origine.
+        // Institutional groups are provisioned by the super admin, not teachers.
         $this->actingAs($this->teacher())
             ->postJson('/api/classes', [
                 'name' => 'Ma classe',
@@ -163,7 +163,7 @@ class AuthorizationTest extends TestCase
                 'group_label' => 'TDI 1',
                 'school_year' => '2025-2026',
             ])
-            ->assertStatus(201);
+            ->assertStatus(403);
     }
 
     // -- T-14 : RG-03 — le super admin est le seul a fixer un role -------------
@@ -391,20 +391,22 @@ class AuthorizationTest extends TestCase
 
     public function test_audit_log_records_the_actor_and_not_the_password(): void
     {
-        $teacher = $this->teacher();
+        $admin = $this->admin();
+        $year = \Illuminate\Support\Facades\DB::table('academic_years')->insertGetId(['name' => 'Synthetic year', 'starts_on' => '2026-09-01', 'ends_on' => '2027-07-31', 'status' => 'active']);
 
-        $this->actingAs($teacher)
+        $this->actingAs($admin)
             ->postJson('/api/classes', [
-                'name' => 'Classe auditee',
-                'subject' => 'Reseaux',
-                'group_label' => 'TDI 9',
-                'school_year' => '2025-2026',
+                'name' => 'Synthetic audited group',
+                'academic_year_id' => $year,
+                'official_code' => 'SYN-9',
+                'filiere' => 'Synthetic stream',
+                'level' => '2',
             ])
             ->assertStatus(201);
 
         $log = AuditLog::latest('id')->first();
 
-        $this->assertSame($teacher->id, $log->user_id);
+        $this->assertSame($admin->id, $log->user_id);
         $this->assertArrayNotHasKey('password', $log->payload ?? []);
     }
 

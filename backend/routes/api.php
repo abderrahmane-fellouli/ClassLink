@@ -22,6 +22,8 @@ use App\Services\AiService;
 use App\Services\EmailDigestService;
 use Illuminate\Support\Facades\Route;
 
+require __DIR__.'/school.php';
+
 /*
 |--------------------------------------------------------------------------
 | API ClassLink — §12
@@ -98,7 +100,7 @@ Route::post('/internal/ai-quota-reset', function (AiService $ai) {
 // Authentifié — §12
 // ===========================================================================
 
-Route::middleware(['auth:sanctum', 'active', 'locale'])->group(function () {
+Route::middleware(['auth:sanctum', 'active', 'locale', \App\Http\Middleware\InstitutionalLegacyBoundary::class])->group(function () {
 
     // --- 12.1 Profil ------------------------------------------------------
     Route::get('/me', [ProfileController::class, 'show']);
@@ -111,7 +113,7 @@ Route::middleware(['auth:sanctum', 'active', 'locale'])->group(function () {
     // --- 12.2 Classes et adhésions ---------------------------------------
     Route::get('/classes', [ClassroomController::class, 'index']);
     Route::post('/classes', [ClassroomController::class, 'store'])
-        ->middleware('role:teacher,admin');
+        ->middleware('role:admin');
 
     Route::get('/classes/{classroom}', [ClassroomController::class, 'show']);
     Route::patch('/classes/{classroom}', [ClassroomController::class, 'update']);
@@ -228,6 +230,7 @@ Route::middleware(['auth:sanctum', 'active', 'locale'])->group(function () {
     Route::get('/flashcard-decks/{deck}', [FlashcardController::class, 'show']);
     Route::patch('/flashcard-decks/{deck}', [FlashcardController::class, 'update']);
     Route::delete('/flashcard-decks/{deck}', [FlashcardController::class, 'destroy']);
+    Route::post('/flashcard-decks/{deck}/cards', [FlashcardController::class, 'storeCard']);
     Route::patch('/flashcard-decks/{deck}/cards/{card}', [FlashcardController::class, 'updateCard']);
     Route::delete('/flashcard-decks/{deck}/cards/{card}', [FlashcardController::class, 'destroyCard']);
     // Relecture d'une carte par l'eleute (F-QUI-08) — distincte de

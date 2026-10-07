@@ -11,6 +11,26 @@
 */
 
 return [
+    'school' => [
+        'archived' => 'This group or academic year is archived.',
+        'verified_teacher' => 'Select an active teacher validated by administration.',
+        'primary_group' => 'This student already has a primary group for this year. Use transfer.',
+        'delegate_limit' => 'At most two active delegates per group.',
+        'missing_assignments' => 'Assign at least one module to a teacher before activation.',
+        'empty_roster' => 'Approve at least one student before creating an assessment.',
+        'version_conflict' => 'These grades changed. Reload before trying again.',
+        'roster_changed' => 'The roster changed. Reconcile it before publication.',
+        'correction_required' => 'Create a correction draft before editing published grades.',
+        'invalid_import' => 'The file contains errors. No changes were saved.',
+        'incomplete_grades' => 'Every student needs a score or an explicit absent, exempt or makeup status.',
+        'formulas_forbidden' => 'Formulas and macros are not accepted in grade files.',
+        'audience_changed' => 'Recipients changed. Preview again before sending.',
+        'request_exists' => 'A request already exists for this module. Contact administration to follow it up.',
+        'conflict' => 'This action conflicts with the current state. Reload and check the information.',
+        'expired' => 'This preview expired. Create a new preview.',
+        'year_frozen' => 'A closed academic year keeps only its label editable.',
+        'template_instructions' => 'Do not change identifiers/context. Maximum: :max. Statuses: graded, ungraded, absent, exempt, makeup. Decimals: comma or dot. Import saves a draft; publication is separate. Do not paste formulas.',
+    ],
     'digest' => [
         'subject' => 'ClassLink — daily summary',
         'heading' => 'Your ClassLink updates:',
@@ -21,6 +41,13 @@ return [
             'partner_request_received' => 'Study partner request', 'partner_request_answered' => 'Study partner response',
             'ai_job_finished' => 'AI generation update', 'announcement_published' => 'Announcement',
             'assignment_published' => 'New assignment',
+            'teaching_assignment_changed' => 'Teaching assignment update',
+            'assignment_request_received' => 'New module assignment request',
+            'delegate_changed' => 'Delegate update',
+            'official_grade_published' => 'Grades published',
+            'school_message_received' => 'School message',
+            'resource_published' => 'New class resource',
+            'deadline_changed' => 'Deadline changed',
         ],
     ],
     'otp' => [
@@ -48,6 +75,7 @@ return [
         'type_not_allowed' => 'File type not allowed.',
         'too_large' => 'File too large (maximum :max KB).',
         'storage_failed' => 'File storage failed.',
+        'storage_capacity_reached' => 'Storage capacity reached (:limit). File uploads are temporarily suspended; free up an existing upload or try again later.',
         'not_found' => 'File not found.',
         'no_file' => 'This submission has no file.',
         'content_mismatch' => 'Invalid file content: it does not match the declared type.',

@@ -90,6 +90,24 @@ Les resultats courants et limites de verification sont consignes dans [`docs/LOC
 
 ## Déploiement
 
+### Modèle scolaire institutionnel (travail local)
+
+Le nouveau parcours **Vie scolaire** utilise des groupes officiels par année,
+des modules et des affectations explicites de formateurs sur une liste commune.
+Les évaluations institutionnelles versionnées et les conversations privées restent
+distinctes des quiz/rendus historiques. Le super admin configure un pilote ; les
+formateurs ne créent plus de nouvelles copies de groupes pour s’auto-autoriser.
+
+Consulter [`docs/SCHOOL_MODEL_HANDOFF.md`](./docs/SCHOOL_MODEL_HANDOFF.md) pour
+l’audit, les droits des quatre responsabilités, les instructions, les migrations,
+les résultats de vérification et les limites. Les anciennes classes ne sont pas
+fusionnées par nom : leur correspondance exige une revue explicite.
+
+`npm --prefix scripts run school-pilot` vérifie un parcours synthétique local
+isolé avec PHP/Vite/Chromium et **aucun email réel**. Il ne vérifie pas les
+fournisseurs de production. Aucun commit/push/déploiement de ce travail n’est
+autorisé implicitement par le prompt produit.
+
 Consulter [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) pour Render (backend) et Vercel (frontend), variables d'environnement, CORS, stockage, Brevo, Microsoft Entra ID, fournisseurs IA.
 
 La section 9 est le runbook actuel. L'image utilise nginx/PHP-FPM, une file database

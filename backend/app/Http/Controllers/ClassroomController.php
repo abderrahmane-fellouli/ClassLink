@@ -35,16 +35,16 @@ class ClassroomController extends Controller
         $status = $data['status'] ?? 'active';
 
         if ($user->isTeacher()) {
-            $classes = Classroom::where('teacher_id', $user->id)
+            $classes = Classroom::where('is_official', false)->where('teacher_id', $user->id)
                 ->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])
                 ->latest()
                 ->get();
         } elseif ($user->isAdmin()) {
-            $classes = Classroom::withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])->latest()->get();
+            $classes = Classroom::where('is_official', false)->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])->latest()->get();
         } else {
             // RG-05 : un étudiant ne voit que ses classes acceptées,
             // plus celles où sa demande est en attente.
-            $classes = Classroom::whereIn('id', $user->memberships()
+            $classes = Classroom::where('is_official', false)->whereIn('id', $user->memberships()
                 ->whereIn('status', [MembershipStatus::Accepted->value, MembershipStatus::Pending->value])
                 ->select('classroom_id'))
                 ->with('teacher')
@@ -66,23 +66,8 @@ class ClassroomController extends Controller
     /** §12.2 — POST /classes. F-CLS-01. */
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'subject' => ['required', 'string', 'max:255'],
-            'group_label' => ['required', 'string', 'max:255'],
-            'school_year' => ['required', 'string', 'max:32'],
-        ]);
-
-        $classroom = Classroom::create($data + [
-            'teacher_id' => $request->user()->id,
-            'join_code' => $this->joinCodes->generate(), // F-CLS-02
-            'join_enabled' => true,
-            'status' => 'active',
-        ]);
-
-        AuditLog::record($request->user(), 'class.create', ['classroom_id' => $classroom->id]);
-
-        return response()->json(new ClassroomResource($classroom), 201);
+        // New groups are institutional; legacy teacher-owned records are preserved.
+        return app(SchoolController::class)->createGroup($request);
     }
 
     /** §12.2 — GET /classes/{id}. */

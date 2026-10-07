@@ -119,6 +119,11 @@ services:
         sync: false # S3-compatible HTTPS endpoint; blank for AWS
       - key: AWS_USE_PATH_STYLE_ENDPOINT
         value: "false"
+      # Plafond du seau en octets : 9 Gio = 9 * 1024^3. Au-dela, l'API
+      # refuse les envois (HTTP 507) avant toute ecriture. A baisser si le
+      # forfait R2 est plus petit que 9 Gio.
+      - key: CLASSLINK_STORAGE_LIMIT_BYTES
+        value: "9663676416"
       - key: AI_PROVIDER_1_BASE_URL
         value: https://api.openai.com/v1
       - key: AI_PROVIDER_2_BASE_URL

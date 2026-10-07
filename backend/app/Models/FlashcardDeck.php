@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class FlashcardDeck extends Model
 {
     use HasFactory;
+    use \App\Models\Concerns\ScopedToOffering;
 
     protected $fillable = ['classroom_id', 'title', 'source', 'status', 'reviewed', 'reviewed_at'];
 

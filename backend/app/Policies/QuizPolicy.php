@@ -67,6 +67,6 @@ class QuizPolicy
     /** F-QUI-07 : résultats de la classe — propriétaire. */
     public function results(User $user, Quiz $quiz): bool
     {
-        return $quiz->classroom->isOwnedBy($user);
+        return $user->isTeacher() && $quiz->classroom->isOwnedBy($user);
     }
 }

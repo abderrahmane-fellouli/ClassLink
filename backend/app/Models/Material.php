@@ -10,8 +10,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Material extends Model
 {
     use HasFactory;
+    use \App\Models\Concerns\ScopedToOffering;
 
     protected $fillable = [
+        'category',
         'classroom_id',
         'title',
         'chapter',

@@ -28,6 +28,8 @@ class Classroom extends Model
     protected function casts(): array
     {
         return [
+            'is_official' => 'boolean',
+            'coordinator_can_manage_roster' => 'boolean',
             'join_enabled' => 'boolean',
             'archived_at' => 'datetime',
         ];
@@ -86,6 +88,11 @@ class Classroom extends Model
     /** RG-05 : l'étudiant a-t-il une adhésion acceptée à cette classe ? */
     public function hasAcceptedMember(int $userId): bool
     {
+        if ($this->is_official && ($scope = request()?->attributes->get('school_offering_id'))) {
+            $user = User::find($userId);
+            if ($user && \Illuminate\Support\Facades\DB::table('module_offerings')->where('id', $scope)->where('classroom_id', $this->id)->exists()
+                && app(\App\Services\SchoolAccess::class)->exceptional($user, $scope)) { return true; }
+        }
         return $this->memberships()
             ->where('student_id', $userId)
             ->where('status', MembershipStatus::Accepted->value)
@@ -95,6 +102,11 @@ class Classroom extends Model
     /** RG-04 : seul le propriétaire (ou un admin) gère la classe. */
     public function isOwnedBy(User $user): bool
     {
+        if ($this->is_official) {
+            $offering = request()?->attributes->get('school_offering_id');
+            return $offering && \Illuminate\Support\Facades\DB::table('module_offerings')->where('id', $offering)->where('classroom_id', $this->id)->exists()
+                && app(\App\Services\SchoolAccess::class)->teaches($user, $offering);
+        }
         return $user->isAdmin() || ($user->isTeacher() && $this->teacher_id === $user->id);
     }
 

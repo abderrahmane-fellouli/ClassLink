@@ -13,7 +13,9 @@ class MaterialResource extends \Illuminate\Http\Resources\Json\JsonResource
             'id' => $this->id,
             'classroom_id' => $this->classroom_id,
             'title' => $this->title,
+            'offering_id' => $this->offering_id,
             'chapter' => $this->chapter,
+            'category' => $this->category,
             'type' => $this->type->value,
 
             /*

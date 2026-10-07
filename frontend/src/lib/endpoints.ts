@@ -372,6 +372,17 @@ export const flashcards = {
     ctx,
   ),
 
+  /** Ajoute une carte a un deck existant (`POST /flashcard-decks/{deck}/cards`). */
+  addCard: (
+    deckId: number,
+    payload: { front: string; back: string },
+    ctx?: Ctx,
+  ) => api.post<{ data: { id: number; front: string; back: string; position: number; deck_reviewed: boolean } }>(
+    `/flashcard-decks/${deckId}/cards`,
+    payload,
+    ctx,
+  ),
+
   /** F-QUI-08 : supprime une carte. */
   deleteCard: (deckId: number, cardId: number, ctx?: Ctx) =>
     api.delete<void>(`/flashcard-decks/${deckId}/cards/${cardId}`, ctx),

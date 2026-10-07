@@ -17,6 +17,7 @@ class ClassroomPolicy
     /** RG-04 : un enseignant ne gère que ses propres classes. */
     public function manage(User $user, Classroom $class): bool
     {
+        if ($class->is_official) { return $class->isOwnedBy($user); }
         return $user->role === 'admin'
             || ($user->role === 'teacher' && $class->teacher_id === $user->id);
     }
@@ -27,6 +28,7 @@ class ClassroomPolicy
      */
     public function view(User $user, Classroom $class): bool
     {
+        if ($class->is_official) { return app(\App\Services\SchoolAccess::class)->canView($user, $class); }
         return $this->manage($user, $class)
             || $class->memberships()
                 ->where('student_id', $user->id)
@@ -70,6 +72,7 @@ class ClassroomPolicy
      */
     public function create(User $user, Classroom $class): bool
     {
+        if ($class->is_official) { return $class->isOwnedBy($user) && ! $class->isReadOnly(); }
         return $user->isTeacher()
             && $class->teacher_id === $user->id
             && ! $class->isReadOnly();

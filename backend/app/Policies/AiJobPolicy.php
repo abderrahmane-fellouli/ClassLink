@@ -12,7 +12,7 @@ class AiJobPolicy
 {
     public function view(User $user, $aiJob): bool
     {
-        return $aiJob->teacher_id === $user->id || $user->isAdmin();
+        return $user->isAdmin() || ($user->isTeacher() && $user->is_active && $aiJob->teacher_id === $user->id && $aiJob->classroom->teacher_id === $user->id);
     }
 
     public function generate(User $user, Classroom $classroom): bool

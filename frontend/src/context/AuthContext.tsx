@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api, setUnauthorizedHandler } from '../lib/api'
+import { api, ApiError, setUnauthorizedHandler } from '../lib/api'
 import { auth as authApi, type AuthResult } from '../lib/endpoints'
 import { clearToken, getToken, setToken } from '../lib/session'
 import { useI18n } from '../i18n'
@@ -35,6 +35,7 @@ interface AuthValue {
    * interrompue par le serveur.
    */
   sessionNotice: string | null
+  retryError?: string | null
   /** RG-01 / §17.6 : rôle `denied` → écran d'accès refusé. */
   isDenied: boolean
   isPending: boolean
@@ -43,11 +44,12 @@ interface AuthValue {
 const AuthContext = createContext<AuthValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { locale, setLocale } = useI18n()
+  const { locale, setLocale, t } = useI18n()
   const [status, setStatus] = useState<Status>(() => (getToken() ? 'loading' : 'anonymous'))
   const [user, setUser] = useState<ApiUser | null>(null)
   const [token, setTokenState] = useState<string | null>(() => getToken())
   const [sessionNotice, setSessionNotice] = useState<string | null>(null)
+  const [retryError, setRetryError] = useState<string | null>(null)
 
   const signInWithResult = useCallback(
     (result: AuthResult) => {
@@ -58,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus('authenticated')
       // La reconnexion réussie efface le message de session expirée.
       setSessionNotice(null)
+      setRetryError(null)
     },
     [setLocale],
   )
@@ -75,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [locale])
 
   const refresh = useCallback(async () => {
+    setRetryError(null)
     if (!getToken()) {
       setStatus('anonymous')
       setUser(null)
@@ -83,15 +87,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const me = await api.get<ApiUser>('/me', { locale })
+      if (!me || typeof me.id !== 'number' || !['student', 'teacher', 'admin', 'pending', 'denied'].includes(me.role)) {
+        throw new ApiError(502, t('school.retryLogin'))
+      }
       setUser(me)
       setStatus('authenticated')
-    } catch {
-      clearToken()
-      setTokenState(null)
-      setUser(null)
-      setStatus('anonymous')
+    } catch (error) {
+      if (error instanceof ApiError && [401, 403].includes(error.status)) {
+        clearToken()
+        setTokenState(null)
+        setUser(null)
+        setStatus('anonymous')
+      } else {
+        // A temporary 502/503 or network failure is not proof of token expiry.
+        // Initial loading remains blocked; every backend action still authorizes.
+        setRetryError(t('school.retryLogin'))
+      }
     }
-  }, [locale])
+  }, [locale, t])
 
   /* Reconnexion au chargement si un jeton existe en sessionStorage. */
   useEffect(() => {
@@ -179,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refresh,
       updateProfile,
       sessionNotice,
+      retryError,
       isDenied: user?.role === 'denied',
       isPending: user?.role === 'pending',
     }),
@@ -194,6 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refresh,
       updateProfile,
       sessionNotice,
+      retryError,
     ],
   )
 

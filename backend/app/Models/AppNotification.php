@@ -18,7 +18,7 @@ class AppNotification extends Model
 
     protected $table = 'notifications';
 
-    protected $fillable = ['user_id', 'type', 'payload', 'read_at'];
+    protected $fillable = ['user_id', 'type', 'payload', 'read_at', 'school_outbox_id'];
 
     protected function casts(): array
     {

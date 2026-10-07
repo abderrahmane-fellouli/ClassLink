@@ -671,6 +671,69 @@ function FlashcardList({
   )
 }
 
+function AddCardForm({
+  front,
+  back,
+  setFront,
+  setBack,
+  pending,
+  error,
+  onSave,
+  onCancel,
+}: {
+  front: string
+  back: string
+  setFront: (value: string) => void
+  setBack: (value: string) => void
+  pending: boolean
+  error: string | null
+  onSave: () => void
+  onCancel?: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <Card className="mt-4 p-4 space-y-3">
+      <div>
+        <label htmlFor="new-card-front" className="block text-xs font-medium mb-1">
+          {t('flashcards.front')}
+        </label>
+        <textarea
+          id="new-card-front"
+          value={front}
+          onChange={e => setFront(e.target.value)}
+          rows={2}
+          maxLength={2000}
+          className="w-full rounded-[var(--radius)] border border-[var(--border)] p-2 text-sm"
+        />
+      </div>
+      <div>
+        <label htmlFor="new-card-back" className="block text-xs font-medium mb-1">
+          {t('flashcards.back')}
+        </label>
+        <textarea
+          id="new-card-back"
+          value={back}
+          onChange={e => setBack(e.target.value)}
+          rows={3}
+          maxLength={2000}
+          className="w-full rounded-[var(--radius)] border border-[var(--border)] p-2 text-sm"
+        />
+      </div>
+      {error && <Alert type="error" message={error}/>}
+      <div className="flex items-center gap-2">
+        <Btn size="sm" disabled={pending || !front.trim() || !back.trim()} onClick={onSave}>
+          {t('common.save')}
+        </Btn>
+        {onCancel && (
+          <Btn size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
+            {t('common.cancel')}
+          </Btn>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export function FlashcardStudyScreen() {
   const { deckId: rawId } = useParams()
   const deckId = Number(rawId)
@@ -704,10 +767,49 @@ export function FlashcardStudyScreen() {
   const [draftBack, setDraftBack] = useState('')
   const edit = useAction()
 
+  /* Ajout d'une carte : le formateur enrichit son deck sans repasser par
+     l'ecran de gestion de la classe. */
+  const [adding, setAdding] = useState(false)
+  const [newFront, setNewFront] = useState('')
+  const [newBack, setNewBack] = useState('')
+
   function startEdit() {
     setDraftFront(card?.front ?? '')
     setDraftBack(card?.back ?? '')
+    setAdding(false)
     setEditing(true)
+  }
+
+  async function appendCard() {
+    if (!newFront.trim() || !newBack.trim()) return
+    await edit.run(async () => {
+      const created = await flashcards.addCard(deckId, {
+        front: newFront.trim(),
+        back: newBack.trim(),
+      })
+      deck.setData(previous =>
+        previous
+          ? {
+              ...previous,
+              reviewed: created.data.deck_reviewed,
+              cards: [
+                ...(previous.cards ?? []),
+                {
+                  id: created.data.id,
+                  front: created.data.front,
+                  back: created.data.back,
+                  known: null,
+                },
+              ],
+            }
+          : previous,
+      )
+      setIndex(cards.length)
+      setFlipped(false)
+      setNewFront('')
+      setNewBack('')
+      setAdding(false)
+    })
   }
 
   async function saveCard() {
@@ -808,10 +910,22 @@ export function FlashcardStudyScreen() {
         error={deck.error}
         onRetry={deck.reload}
         errorMessage={t('common.error')}
-        isEmpty={cards.length === 0}
+        isEmpty={cards.length === 0 && !manager}
         empty={<EmptyState message={t('flashcards.empty')}/>}
       >
         <>
+          {cards.length === 0 ? (
+            <AddCardForm
+              front={newFront}
+              back={newBack}
+              setFront={setNewFront}
+              setBack={setNewBack}
+              pending={edit.pending}
+              error={edit.error ? errorMessage(edit.error, t('error.unknown')) : null}
+              onSave={() => void appendCard()}
+            />
+          ) : (
+            <>
           {reviewError && <Alert type="error" message={reviewError}/>}
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs text-[var(--muted-foreground)]">
@@ -820,7 +934,18 @@ export function FlashcardStudyScreen() {
             {!flipped && <span className="text-xs text-[var(--muted-foreground)]">{t('flashcards.flip')}</span>}
           </div>
 
-          {manager && editing && card ? (
+          {manager && adding && !editing ? (
+            <AddCardForm
+              front={newFront}
+              back={newBack}
+              setFront={setNewFront}
+              setBack={setNewBack}
+              pending={edit.pending}
+              error={edit.error ? errorMessage(edit.error, t('error.unknown')) : null}
+              onSave={() => void appendCard()}
+              onCancel={() => setAdding(false)}
+            />
+          ) : manager && editing && card ? (
             <Card className="mt-4 p-4 space-y-3">
               <div>
                 <label htmlFor="card-front" className="block text-xs font-medium mb-1">
@@ -886,10 +1011,20 @@ export function FlashcardStudyScreen() {
           </button>
           )}
 
-          {manager && !editing && (
-            <div className="flex justify-center mt-2">
+          {manager && !editing && !adding && (
+            <div className="flex justify-center gap-2 mt-2">
               <Btn size="sm" variant="secondary" onClick={startEdit} disabled={!card}>
                 {t('flashcards.editCard')}
+              </Btn>
+              <Btn
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setEditing(false)
+                  setAdding(true)
+                }}
+              >
+                {t('school.addCard')}
               </Btn>
             </div>
           )}
@@ -958,6 +1093,8 @@ export function FlashcardStudyScreen() {
               </Btn>
             )}
           </div>
+            </>
+          )}
         </>
       </AsyncBoundary>
     </div>

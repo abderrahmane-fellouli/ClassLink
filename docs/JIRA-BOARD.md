@@ -1,6 +1,10 @@
 # JIRA Board — ClassLink 1.0
 
-Delivery board for ClassLink 1.0. All items are **Done** as of the delivery build unless listed in "Known Issues / Follow-ups" (which are documented, not blocking).
+Historical delivery board for ClassLink 1.0, not evidence of today's production
+readiness. The combined school master prompt supersedes the single-teacher class
+model. See [SCHOOL_MODEL_HANDOFF.md](SCHOOL_MODEL_HANDOFF.md) for the locally
+implemented institutional model, tests, blockers and exact proposed CL update
+titles. Jira itself has **not** been synchronized; no new issue IDs are invented.
 
 Legend: ✅ Done · 🚧 Partial/Could-have · ⛔ Blocked by external dependency (documented, not hidden)
 
@@ -8,7 +12,7 @@ Legend: ✅ Done · 🚧 Partial/Could-have · ⛔ Blocked by external dependenc
 
 | ID | Item | Type | Priority | Status | Notes |
 |---|---|---|---|---|---|
-| CL-1 | Laravel 11 project scaffold (API) | Story | Must | ✅ | Sanctum, Socialite, flysystem-aws-s3-v3. |
+| CL-1 | Laravel project scaffold (API) | Story | Must | ✅ local | Current lock: Laravel 12.69.3. Sanctum, Socialite, private flysystem storage. |
 | CL-2 | React 19 + Vite + TS frontend | Story | Must | ✅ | ESM, Tailwind 4, i18n FR/EN. |
 | CL-3 | Microsoft Entra ID OAuth (F-AUTH-01) | Story | Must | ✅ local / ⛔ live | State/replay protection, tenant + Graph object identity linking, single-use pending receipt, fragment token handoff. Real school-tenant testing pending; see OFPPT_MICROSOFT_AUTH.md. |
 | CL-4 | OTP fallback login (F-AUTH-02) | Story | Must | ✅ | 6-digit, 10-min TTL, hashed at rest, rate-limited. |

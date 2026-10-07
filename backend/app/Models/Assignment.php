@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Assignment extends Model
 {
     use HasFactory;
+    use \App\Models\Concerns\ScopedToOffering;
 
     protected $fillable = ['classroom_id', 'created_by', 'title', 'instructions', 'due_at'];
 
