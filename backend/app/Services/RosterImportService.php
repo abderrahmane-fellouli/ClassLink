@@ -63,7 +63,7 @@ final class RosterImportService
         $transferIds = DB::table('school_enrollments')
             ->where('academic_year_id', $group->academic_year_id)
             ->where('classroom_id', '!=', $group->id)
-            ->whereIn('active_student_id', $byEmails->keys()->all())
+            ->whereIn('active_student_id', $byEmails->pluck('id')->all())
             ->pluck('active_student_id')->flip();
         foreach ($rows as $index => $row) {
             $identifier = trim((string) ($row['student_identifier'] ?? ''));

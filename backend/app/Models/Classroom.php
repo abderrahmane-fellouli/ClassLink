@@ -4,10 +4,12 @@ namespace App\Models;
 
 use App\Enums\ClassStatus;
 use App\Enums\MembershipStatus;
+use App\Services\SchoolAccess;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class Classroom extends Model
 {
@@ -31,6 +33,7 @@ class Classroom extends Model
             'is_official' => 'boolean',
             'coordinator_can_manage_roster' => 'boolean',
             'join_enabled' => 'boolean',
+            'delegate_notices_enabled' => 'boolean',
             'archived_at' => 'datetime',
         ];
     }
@@ -90,9 +93,12 @@ class Classroom extends Model
     {
         if ($this->is_official && ($scope = request()?->attributes->get('school_offering_id'))) {
             $user = User::find($userId);
-            if ($user && \Illuminate\Support\Facades\DB::table('module_offerings')->where('id', $scope)->where('classroom_id', $this->id)->exists()
-                && app(\App\Services\SchoolAccess::class)->exceptional($user, $scope)) { return true; }
+            if ($user && DB::table('module_offerings')->where('id', $scope)->where('classroom_id', $this->id)->exists()
+                && app(SchoolAccess::class)->exceptional($user, $scope)) {
+                return true;
+            }
         }
+
         return $this->memberships()
             ->where('student_id', $userId)
             ->where('status', MembershipStatus::Accepted->value)
@@ -104,9 +110,11 @@ class Classroom extends Model
     {
         if ($this->is_official) {
             $offering = request()?->attributes->get('school_offering_id');
-            return $offering && \Illuminate\Support\Facades\DB::table('module_offerings')->where('id', $offering)->where('classroom_id', $this->id)->exists()
-                && app(\App\Services\SchoolAccess::class)->teaches($user, $offering);
+
+            return $offering && DB::table('module_offerings')->where('id', $offering)->where('classroom_id', $this->id)->exists()
+                && app(SchoolAccess::class)->teaches($user, $offering);
         }
+
         return $user->isAdmin() || ($user->isTeacher() && $this->teacher_id === $user->id);
     }
 

@@ -14,6 +14,7 @@ use App\Models\Quiz;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 /**
  * §12.6 — Administration. F-ADM-01 à F-ADM-06.
@@ -111,6 +112,7 @@ class AdminController extends Controller
     public function classes(Request $request): JsonResponse
     {
         $classes = Classroom::with('teacher:id,display_name')
+            ->where('is_official', false) // Official groups use the institutional setup/access UI.
             ->withCount(['memberships' => fn ($query) => $query->where('status', MembershipStatus::Accepted->value)])
             ->orderByDesc('created_at')
             ->limit(1000)
@@ -254,12 +256,14 @@ class AdminController extends Controller
         }
 
         if ($from = $request->string('from')->toString()) {
-            $query->where('created_at', '>=', \Illuminate\Support\Carbon::parse($from));
+            $query->where('created_at', '>=', Carbon::parse($from));
         }
 
         if ($to = $request->string('to')->toString()) {
-            $end = \Illuminate\Support\Carbon::parse($to);
-            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $to)) $end->endOfDay();
+            $end = Carbon::parse($to);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $to)) {
+                $end->endOfDay();
+            }
             $query->where('created_at', '<=', $end);
         }
 

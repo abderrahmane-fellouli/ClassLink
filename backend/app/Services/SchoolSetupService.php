@@ -27,7 +27,7 @@ final class SchoolSetupService
             });
         }
 
-        return $query->select(['id', 'name', 'official_code', 'filiere', 'level', 'school_year', 'academic_year_id', 'status', 'join_enabled', 'roster_version', 'coordinator_id', 'coordinator_can_manage_roster'])->orderBy('official_code');
+        return $query->select(['id', 'name', 'official_code', 'filiere', 'level', 'school_year', 'academic_year_id', 'status', 'join_enabled', 'delegate_notices_enabled', 'roster_version', 'coordinator_id', 'coordinator_can_manage_roster'])->orderBy('official_code');
     }
 
     public function requestEnrollment(User $student, Classroom $group): Membership

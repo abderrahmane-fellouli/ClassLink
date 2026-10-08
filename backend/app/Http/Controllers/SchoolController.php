@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\Membership;
+use App\Models\PartnerRequest;
 use App\Models\User;
 use App\Services\JoinCodeService;
 use App\Services\NotificationService;
@@ -452,6 +453,45 @@ class SchoolController extends Controller
         AuditLog::record($r->user(), 'school.module_access.grant', ['offering_id' => $offering, 'student_id' => $student->id]);
 
         return response()->noContent();
+    }
+
+    /** Named, admin-only access management; never expose a student directory to peers. */
+    public function moduleGrants(Request $r, int $offering)
+    {
+        $this->access->admin($r->user());
+        abort_unless(DB::table('module_offerings')->where('id', $offering)->exists(), 404);
+
+        return response()->json(['data' => DB::table('module_access_grants as g')->join('users as u', 'u.id', '=', 'g.student_id')
+            ->where('g.offering_id', $offering)->whereNull('g.revoked_at')->where('g.expires_at', '>', now())
+            ->select('g.student_id', 'u.display_name', 'g.reason', 'g.expires_at')->orderBy('u.display_name')->get()]);
+    }
+
+    /** Reuse opt-in partner matching for accepted official enrollment, not module-only access. */
+    public function partners(Request $r, int $group)
+    {
+        $class = $this->access->group($group);
+        abort_unless($r->user()->isStudent() && $this->access->enrolled($r->user(), $class), 403);
+
+        return app(PartnerController::class)->candidates($r, $class);
+    }
+
+    public function requestPartner(Request $r, int $group)
+    {
+        $class = $this->access->group($group);
+        $this->access->writable($class);
+        abort_unless($this->access->enrolled($r->user(), $class), 403);
+        $r->merge(['classroom_id' => $group]); // The authorized route context is canonical.
+
+        return app(PartnerController::class)->request($r);
+    }
+
+    public function respondPartner(Request $r, int $partner)
+    {
+        $record = PartnerRequest::findOrFail($partner);
+        $class = $this->access->group($record->classroom_id);
+        $this->access->writable($class);
+
+        return app(PartnerController::class)->respond($r, $record);
     }
 
     public function revokeModule(Request $r, int $offering, int $student)

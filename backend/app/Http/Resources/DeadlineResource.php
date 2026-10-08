@@ -13,6 +13,9 @@ class DeadlineResource extends JsonResource
         return [
             'kind' => $this->resource instanceof Quiz ? 'quiz' : 'assignment',
             'id' => $this->id,
+            'url' => $this->resource instanceof Quiz
+                ? '/app/classes/'.$this->classroom_id.'/quizzes/'.$this->id.($this->offering_id ? '?offering='.$this->offering_id : '')
+                : '/app/assignments/'.$this->id,
             'title' => $this->title,
             'classroom' => $this->classroom?->name,
             'due_at' => $this->due_at->toIso8601String(),

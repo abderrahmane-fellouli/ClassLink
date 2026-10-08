@@ -36,9 +36,13 @@ Route::prefix('school')->middleware(['auth:sanctum', 'active', 'locale', \App\Ht
     Route::post('/groups/{group}/restore', [SchoolController::class, 'restore']);
     Route::get('/people', [SchoolController::class, 'people']);
     Route::get('/groups/{group}/contacts', [SchoolController::class, 'contacts']);
+    Route::get('/groups/{group}/partners', [SchoolController::class, 'partners'])->middleware('role:student');
+    Route::post('/groups/{group}/partner-requests', [SchoolController::class, 'requestPartner'])->middleware(['role:student', 'throttle:30,1']);
+    Route::post('/partner-requests/{partner}/respond', [SchoolController::class, 'respondPartner'])->middleware(['role:student', 'throttle:30,1']);
     Route::post('/groups/{group}/roster-imports/preview', [SchoolController::class, 'previewRoster']);
     Route::post('/groups/{group}/roster-imports/commit', [SchoolController::class, 'commitRoster']);
     Route::post('/offerings/{offering}/access-grants', [SchoolController::class, 'grantModule']);
+    Route::get('/offerings/{offering}/access-grants', [SchoolController::class, 'moduleGrants']);
     Route::delete('/offerings/{offering}/access-grants/{student}', [SchoolController::class, 'revokeModule']);
     Route::get('/offerings/{offering}/assessments', [\App\Http\Controllers\OfficialGradeController::class, 'index']);
     Route::post('/offerings/{offering}/assessments', [\App\Http\Controllers\OfficialGradeController::class, 'create']);
