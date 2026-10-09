@@ -134,7 +134,9 @@ class OtpService
      */
     private function resolveUser(string $email): User
     {
-        $user = User::where('email', $email)->first();
+        $matches = User::whereRaw('LOWER(email) = ?', [$email])->limit(2)->get();
+        abort_if($matches->count() > 1, 409, __('api.errors.forbidden'));
+        $user = $matches->first();
 
         if ($user) {
             $resolved = RoleDetector::resolveFor($email, (bool) $user->role_locked, $user->role);

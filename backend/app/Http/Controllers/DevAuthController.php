@@ -22,7 +22,7 @@ class DevAuthController extends Controller
 
     public function login(Request $request): JsonResponse
     {
-        if (! config('classlink.dev_auth.enabled')) {
+        if (! config('classlink.dev_auth.enabled') || ! app()->environment(['local', 'testing']) || ! $this->localDatabase()) {
             return response()->json(['message' => __('api.errors.not_found')], 404);
         }
 
@@ -36,9 +36,9 @@ class DevAuthController extends Controller
 
         $user = $this->resolve($data);
 
-        if (! $user) {
+        if (! $user || ! $user->canAccessApp()) {
             return response()->json([
-                'message' => "Aucun compte de démonstration. Lancez : php artisan db:seed",
+                'message' => 'Aucun compte de démonstration. Lancez : php artisan db:seed',
             ], 404);
         }
 
@@ -60,11 +60,32 @@ class DevAuthController extends Controller
     private function resolve(array $data): ?User
     {
         if (! empty($data['email'])) {
-            return User::where('email', strtolower($data['email']))->first();
+            $matches = User::whereRaw('LOWER(email) = ?', [strtolower($data['email'])])->limit(2)->get();
+
+            return $matches->count() === 1 ? $matches->first() : null;
         }
 
         $role = $data['role'] ?? 'student';
 
         return User::where('role', $role)->orderBy('id')->first();
+    }
+
+    private function localDatabase(): bool
+    {
+        $driver = config('database.default');
+        $connection = config('database.connections.'.$driver, []);
+        if (! empty($connection['url'])) {
+            return false;
+        }
+        if ($driver === 'sqlite') {
+            $file = (string) ($connection['database'] ?? '');
+
+            return ($file === ':memory:' && app()->environment('testing'))
+                || (is_file($file) && ! str_starts_with($file, '\\\\') && ! str_starts_with($file, '//'));
+        }
+
+        return $driver === 'pgsql' && app()->environment('testing')
+            && in_array($connection['host'] ?? '', ['127.0.0.1', 'localhost', '::1'], true)
+            && str_ends_with((string) ($connection['database'] ?? ''), '_test');
     }
 }
