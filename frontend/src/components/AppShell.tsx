@@ -5,7 +5,7 @@ import { useI18n, type Translate } from "../i18n";
 import { notifications as notificationsApi } from "../lib/endpoints";
 import { useAction, useAsync } from "../lib/useAsync";
 import type { Locale, Role } from "../lib/types";
-import { Alert, Btn, ConfirmButton, Dialog, Icons, LocaleSwitch } from "./UI";
+import { Alert, Btn, ConfirmButton, Dialog, Icons, LocaleSwitch, ThemeSwitch } from "./UI";
 import { errorMessage } from "../lib/api";
 
 type NavEntry = {
@@ -111,6 +111,22 @@ function roleLabelKey(role: Role | null) {
   return "role.student" as const;
 }
 
+function LinkProfile({ name, initials }: { name: string; initials: string }) {
+  const { t } = useI18n();
+  return (
+    <NavLink
+      to="/app/profile"
+      aria-label={t("nav.profile")}
+      className="flex items-center gap-2 min-h-11 min-w-11"
+    >
+      <span className="shell-tools-name">{name}</span>
+      <span className="shell-avatar" aria-hidden="true">
+        {initials}
+      </span>
+    </NavLink>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, role, signOut, updateProfile, retryError, refresh } = useAuth();
   const { t, locale, setLocale, formatRelative } = useI18n();
@@ -144,10 +160,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [role, location.pathname]);
 
   const sidebarContent = (
-    <div className="flex flex-col h-full" style={{ background: "var(--sidebar)" }}>
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
+    <div className="shell-sidebar-inner">
+      <div className="shell-brand">
         <Icons.Logo />
-        <span className="font-display text-lg font-semibold tracking-tight text-white">
+        <span className="font-display text-lg font-semibold tracking-tight">
           {t("common.appName")}
         </span>
       </div>
@@ -156,20 +172,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         <span
           className="text-xs font-medium px-2 py-1 rounded-md"
           style={{
-            background: "rgba(111,168,220,0.2)",
-            color: "var(--secondary)",
+            background: "var(--selected)",
+            color: "var(--foreground)",
           }}
         >
           {t(roleLabelKey(role))}
         </span>
       </div>
 
-      <nav className="flex-1 px-3 mt-2 space-y-0.5 overflow-y-auto">
+      <nav className="shell-nav">
         {nav.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.end}
+            end={
+              item.end ||
+              (item.labelKey === "nav.school" &&
+                /^\/app\/school\/(grades|messages)/.test(location.pathname))
+            }
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
               `w-full min-h-11 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -178,8 +198,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   item.labelKey === "nav.school" &&
                   /^\/app\/school\/(grades|messages)/.test(location.pathname)
                 )
-                  ? "bg-white/12 text-white"
-                  : "text-white/75 hover:bg-white/8 hover:text-white"
+                  ? "bg-[var(--selected)] text-[var(--foreground)]"
+                  : "text-[var(--sidebar-muted)]"
               }`
             }
           >
@@ -189,21 +209,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         ))}
       </nav>
 
-      <div className="px-4 py-4 border-t border-white/10 space-y-3">
+      <div className="shell-account">
         <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-            style={{ background: "var(--accent)", color: "white" }}
-          >
-            {user?.initials ?? "—"}
-          </div>
+          <div className="shell-avatar">{user?.initials ?? "—"}</div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-white truncate">{user?.display_name ?? ""}</p>
-            <p className="text-xs text-white/70 truncate">{user?.email ?? t("common.tagline")}</p>
+            <p className="text-sm font-medium break-words">{user?.display_name ?? ""}</p>
+            <p className="text-xs text-[var(--muted-foreground)] break-all">
+              {user?.email ?? t("common.tagline")}
+            </p>
           </div>
         </div>
         <div className="flex items-center justify-between gap-3">
           <LocaleSwitch locale={locale} onChange={(value) => void changeLocale(value)} />
+          <ThemeSwitch />
           <ConfirmButton
             variant="ghost"
             onClick={() => {
@@ -211,7 +229,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               navigate("/", { replace: true });
               void signOut();
             }}
-            className="text-white/70 hover:text-white transition-colors"
+            className="text-[var(--sidebar-muted)]"
             title={t("nav.logout")}
             aria-label={t("nav.logout")}
           >
@@ -228,7 +246,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {t("ux.skip")}
       </a>
       {retryError && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-white border rounded-lg p-3 shadow-lg">
+        <div className="fixed bottom-4 right-4 left-4 sm:left-auto z-50 max-w-sm bg-[var(--surface-elevated)] border rounded-lg p-3">
           <Alert type="warning" message={retryError} />
           <button className="min-h-11 px-3 text-[var(--primary)]" onClick={() => void refresh()}>
             {t("common.retry")}
@@ -236,14 +254,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
       <aside
-        className="app-sidebar hidden md:flex flex-col"
+        className="app-sidebar hidden lg:flex flex-col"
         style={{ background: "var(--sidebar)" }}
       >
         {sidebarContent}
       </aside>
 
       {mobileOpen && (
-        <Dialog title={t("nav.menu")} onClose={() => setMobileOpen(false)}>
+        <Dialog drawer title={t("nav.menu")} onClose={() => setMobileOpen(false)}>
           <aside className="relative w-full flex flex-col rounded-xl overflow-hidden">
             {sidebarContent}
           </aside>
@@ -251,38 +269,51 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="md:hidden flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border-subtle)] bg-white sticky top-0 z-40">
-          <button
-            onClick={() => setMobileOpen(true)}
-            aria-expanded={mobileOpen}
-            aria-haspopup="dialog"
-            className="p-2 rounded-lg hover:bg-[var(--muted)]"
-            aria-label={t("nav.menu")}
-          >
-            <Icons.Menu />
-          </button>
-          <div className="flex items-center gap-2">
-            <Icons.Logo />
-            <span className="hidden min-[375px]:inline font-display font-semibold">
-              {t("common.appName")}
-            </span>
-          </div>
-          <LocaleSwitch light locale={locale} onChange={(value) => void changeLocale(value)} />
-          <button
-            onClick={() => {
-              if (!panelOpen) notifs.reload();
-              setPanelOpen((v) => !v);
-            }}
-            className="p-2 rounded-lg hover:bg-[var(--muted)] relative"
-            aria-label={t("nav.notifications")}
-          >
-            <Icons.Bell />
-            {unread > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[9px] flex items-center justify-center">
-                {unread}
+        <header className="shell-topbar">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setMobileOpen(true)}
+              aria-expanded={mobileOpen}
+              aria-haspopup="dialog"
+              className="ui-icon-button lg:hidden"
+              aria-label={t("nav.menu")}
+            >
+              <Icons.Menu />
+            </button>
+            <div className="flex items-center gap-2 lg:hidden">
+              <Icons.Logo />
+              <span className="hidden min-[375px]:inline font-display font-semibold">
+                {t("common.appName")}
               </span>
-            )}
-          </button>
+            </div>
+            <span className="shell-topbar-context">{t("nav.school")}</span>
+          </div>
+          <div className="shell-tools">
+            <span className="hidden sm:inline-flex">
+              <ThemeSwitch />
+            </span>
+            <span className="lg:hidden">
+              <LocaleSwitch light locale={locale} onChange={(value) => void changeLocale(value)} />
+            </span>
+            <button
+              onClick={() => {
+                if (!panelOpen) notifs.reload();
+                setPanelOpen((v) => !v);
+              }}
+              className="ui-icon-button relative"
+              aria-label={t("nav.notifications")}
+              aria-haspopup="dialog"
+              aria-expanded={panelOpen}
+            >
+              <Icons.Bell />
+              {unread > 0 && (
+                <span className="absolute top-0 right-0 min-w-4 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-xs px-1 flex items-center justify-center">
+                  {unread}
+                </span>
+              )}
+            </button>
+            <LinkProfile name={user?.display_name ?? ""} initials={user?.initials ?? "—"} />
+          </div>
         </header>
 
         <main
@@ -293,22 +324,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           }`}
         >
           {localeError && <Alert type="warning" message={t("profile.languageSaveError")} />}
-          <div className="hidden md:flex justify-end mb-4">
-            <button
-              aria-label={t("nav.notifications")}
-              aria-haspopup="dialog"
-              aria-expanded={panelOpen}
-              onClick={() => {
-                notifs.reload();
-                setPanelOpen(true);
-              }}
-              className="flex items-center gap-2 min-h-11 rounded-lg bg-white border border-[var(--border-subtle)] px-3"
-            >
-              <Icons.Bell />
-              <span>{t("nav.notifications")}</span>
-              {unread > 0 && <span>{unread}</span>}
-            </button>
-          </div>
           {panelOpen && (
             <NotificationPanel
               onClose={() => setPanelOpen(false)}
@@ -330,16 +345,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             />
           )}
 
-          {children}
+          <div className="route-page">{children}</div>
         </main>
         {role === "student" && (
           <nav
             aria-label={t("nav.dashboard")}
-            className="mobile-bottom-nav md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[var(--border-subtle)] flex justify-around pb-[env(safe-area-inset-bottom)]"
+            className="mobile-bottom-nav md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-[var(--border-subtle)] flex justify-around pb-[env(safe-area-inset-bottom)]"
           >
             {nav
               .filter((item) =>
-                ["nav.dashboard", "nav.school", "school.grades", "school.messages"].includes(
+                ["nav.dashboard", "nav.deadlines", "school.grades", "school.messages"].includes(
                   item.labelKey,
                 ),
               )
@@ -443,10 +458,8 @@ function NotificationPanel({
                   else onClose();
                 })
               }
-              className={`w-full text-left px-3.5 py-3 rounded-lg border text-sm transition-colors ${
-                item.is_read
-                  ? "border-[var(--border)] bg-white"
-                  : "border-[var(--primary)]/25 bg-[var(--secondary)]"
+              className={`notification-row w-full text-left px-3.5 py-3 text-sm ${
+                item.is_read ? "" : "notification-row-unread"
               }`}
             >
               <span className="block font-medium">{describeNotification(item, t)}</span>

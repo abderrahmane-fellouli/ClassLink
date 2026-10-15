@@ -194,7 +194,7 @@ export function StudentDashboard() {
                 className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--muted)]"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{item.quiz_title ?? "—"}</p>
+                  <p className="text-sm font-medium break-words">{item.quiz_title ?? "—"}</p>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     {formatDate(item.submitted_at)}
                   </p>
@@ -498,7 +498,7 @@ function MaterialList({
               {item.type === "link" ? <Icons.External /> : <Icons.Book />}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{item.title}</p>
+              <p className="text-sm font-medium break-words">{item.title}</p>
               <p className="text-xs text-[var(--muted-foreground)]">
                 {t(item.type === "file" ? "class.type.file" : "class.type.link")}
                 {item.chapter ? ` · ${item.chapter}` : ""}
@@ -558,8 +558,8 @@ function MemberList({
         {items.map((member) => (
           <div key={member.membership_id} className="flex items-center gap-3 px-4 py-3">
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ background: "var(--accent)", color: "white" }}
+              className="w-8 h-8 rounded-md flex items-center justify-center text-sm font-semibold"
+              style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
             >
               {member.user?.initials ?? "—"}
             </div>
@@ -685,7 +685,7 @@ export function AssignmentDetailScreen() {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="assignment-workspace">
       <PageHeader
         title={item?.title ?? t("common.loading")}
         subtitle={
@@ -705,118 +705,137 @@ export function AssignmentDetailScreen() {
         errorMessage={t("common.error")}
       >
         <>
-          {item?.instructions && (
-            <Card className="p-5 mb-4">
-              <p className="text-sm font-semibold mb-2">{t("assignment.instructions")}</p>
-              <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">
-                {item.instructions}
-              </p>
-            </Card>
-          )}
-
-          {notice && (
-            <div className="mb-4">
-              <Alert message={notice} type="success" />
-            </div>
-          )}
-          {download.error && (
-            <Alert type="error" message={errorMessage(download.error, t("common.networkError"))} />
-          )}
-          {send.error && (
-            <div className="mb-4">
-              <Alert message={errorMessage(send.error, t("error.unknown"))} type="error" />
-            </div>
-          )}
-
-          {mine ? (
-            <Card className="p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">{t("assignment.submitted.title")}</p>
-                <Badge
-                  label={
-                    mine.is_late ? t("assignment.submitted.late") : t("assignment.submitted.onTime")
-                  }
-                  color={mine.is_late ? "red" : "green"}
-                />
-              </div>
-              <p className="text-xs text-[var(--muted-foreground)]">
-                {t("assignment.submitted.at", {
-                  date: formatDateTime(mine.submitted_at),
-                })}
-              </p>
-
-              <div
-                className="flex items-center justify-between p-3 rounded-lg"
-                style={{ background: "var(--muted)" }}
-              >
-                <span className="text-sm truncate">{mine.file_name ?? t("error.noFile")}</span>
-                <Btn
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void openFile()}
-                  disabled={download.pending}
-                >
-                  {t("assignment.download")}
-                </Btn>
-              </div>
-
-              <div className="pt-2 border-t border-[var(--border)]">
-                <p className="text-sm font-semibold mb-1">{t("assignment.grade.title")}</p>
-                {mine.grade === null ? (
-                  <p className="text-sm text-[var(--muted-foreground)]">
-                    {t("assignment.grade.pending")}
+          <div className="assignment-layout">
+            <div>
+              {item?.instructions && (
+                <Card className="assignment-instructions mb-4">
+                  <h2 className="font-semibold mb-4">{t("assignment.instructions")}</h2>
+                  <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">
+                    {item.instructions}
                   </p>
-                ) : (
-                  <p className="text-sm font-medium text-green-600">
-                    {t("assignment.grade.value", { grade: mine.grade })}
-                  </p>
-                )}
-                {mine.feedback && (
-                  <>
-                    <p className="text-sm font-semibold mt-3 mb-1">{t("assignment.feedback")}</p>
-                    <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">
-                      {mine.feedback}
-                    </p>
-                  </>
-                )}
-              </div>
-            </Card>
-          ) : (
-            <Card className="p-5 space-y-3">
-              <p className="text-sm font-semibold">{t("assignment.submit.title")}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">
-                {t("assignment.submit.hint")}
-              </p>
-
-              <label className="flex flex-col items-center justify-center gap-2 px-4 py-6 border-2 border-dashed border-[var(--border)] rounded-lg cursor-pointer hover:border-[var(--primary)] transition-colors">
-                <Icons.Upload />
-                <span className="text-sm font-medium">
-                  {file ? file.name : t("assignment.submit.choose")}
-                </span>
-                <input
-                  type="file"
-                  aria-label={t("assignment.submit.choose")}
-                  className="sr-only"
-                  onChange={(event) => {
-                    setFile(event.target.files?.[0] ?? null);
-                    setFileError(null);
-                  }}
-                />
-              </label>
-              {fileError && <p className="text-xs text-[var(--danger)]">{fileError}</p>}
-
-              {item?.publication_status === "closed" && (
-                <Alert type="warning" message={t("school.closed")} />
+                </Card>
               )}
-              <Btn
-                full
-                onClick={() => void submit()}
-                disabled={send.pending || !file || item?.publication_status === "closed"}
-              >
-                {send.pending ? t("assignment.submit.sending") : t("assignment.submit.send")}
-              </Btn>
-            </Card>
-          )}
+            </div>
+            <div className="space-y-4 min-w-0">
+              {notice && (
+                <div className="mb-4">
+                  <Alert message={notice} type="success" />
+                </div>
+              )}
+              {download.error && (
+                <Alert
+                  type="error"
+                  message={errorMessage(download.error, t("common.networkError"))}
+                />
+              )}
+              {send.error && (
+                <div className="mb-4">
+                  <Alert message={errorMessage(send.error, t("error.unknown"))} type="error" />
+                </div>
+              )}
+
+              {mine ? (
+                <Card className="assignment-panel space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{t("assignment.submitted.title")}</p>
+                    <Badge
+                      label={
+                        mine.is_late
+                          ? t("assignment.submitted.late")
+                          : t("assignment.submitted.onTime")
+                      }
+                      color={mine.is_late ? "red" : "green"}
+                    />
+                  </div>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {t("assignment.submitted.at", {
+                      date: formatDateTime(mine.submitted_at),
+                    })}
+                  </p>
+
+                  <div className="file-row">
+                    <span className="text-sm break-all">{mine.file_name ?? t("error.noFile")}</span>
+                    <Btn
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void openFile()}
+                      disabled={download.pending}
+                    >
+                      {t("assignment.download")}
+                    </Btn>
+                  </div>
+
+                  <div className="pt-2 border-t border-[var(--border)]">
+                    <p className="text-sm font-semibold mb-1">{t("assignment.grade.title")}</p>
+                    {mine.grade === null ? (
+                      <p className="text-sm text-[var(--muted-foreground)]">
+                        {t("assignment.grade.pending")}
+                      </p>
+                    ) : (
+                      <p className="text-sm font-medium text-green-600">
+                        {t("assignment.grade.value", { grade: mine.grade })}
+                      </p>
+                    )}
+                    {mine.feedback && (
+                      <>
+                        <p className="text-sm font-semibold mt-3 mb-1">
+                          {t("assignment.feedback")}
+                        </p>
+                        <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">
+                          {mine.feedback}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </Card>
+              ) : (
+                <Card className="assignment-panel space-y-4">
+                  <p className="text-sm font-semibold">{t("assignment.submit.title")}</p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {t("assignment.submit.hint")}
+                  </p>
+
+                  <label className="file-chooser flex flex-col items-start justify-center gap-3 cursor-pointer">
+                    <Icons.Upload />
+                    <span className="text-sm font-medium">
+                      {file ? file.name : t("assignment.submit.choose")}
+                    </span>
+                    <input
+                      type="file"
+                      aria-label={t("assignment.submit.choose")}
+                      aria-invalid={!!fileError}
+                      aria-describedby={fileError ? "submission-file-error" : undefined}
+                      className="sr-only"
+                      onChange={(event) => {
+                        setFile(event.target.files?.[0] ?? null);
+                        setFileError(null);
+                      }}
+                    />
+                  </label>
+                  {fileError && (
+                    <p
+                      id="submission-file-error"
+                      role="alert"
+                      className="text-sm text-[var(--danger)]"
+                    >
+                      {fileError}
+                    </p>
+                  )}
+
+                  {item?.publication_status === "closed" && (
+                    <Alert type="warning" message={t("school.closed")} />
+                  )}
+                  <Btn
+                    full
+                    onClick={() => void submit()}
+                    disabled={send.pending || !file || item?.publication_status === "closed"}
+                  >
+                    {send.pending ? t("assignment.submit.sending") : t("assignment.submit.send")}
+                  </Btn>
+                </Card>
+              )}
+            </div>
+          </div>
         </>
       </AsyncBoundary>
     </div>
@@ -1211,7 +1230,7 @@ export function FlashcardStudyScreen() {
               ) : (
                 <button
                   onClick={() => setFlipped((v) => !v)}
-                  className="w-full min-h-56 rounded-[var(--radius)] border border-[var(--border)] bg-white p-8 flex flex-col items-center justify-center gap-3 text-center shadow-sm hover:border-[var(--primary)] transition-colors"
+                  className="w-full min-h-56 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-8 flex flex-col items-center justify-center gap-3 text-center hover:border-[var(--primary)] transition-colors"
                   aria-label={t("flashcards.flip")}
                 >
                   <p className="font-display text-lg font-semibold">{card?.front}</p>
@@ -1911,7 +1930,7 @@ function DeadlineRow({
       <div
         className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
         style={{
-          background: overdue ? "#FEE2E2" : "var(--secondary)",
+          background: overdue ? "var(--error-bg)" : "var(--secondary)",
           color: overdue ? "var(--danger)" : "var(--primary)",
         }}
       >
@@ -2122,7 +2141,7 @@ export function PartnersScreen() {
                   onClick={() => {
                     setNewSkill(skill);
                   }}
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  className="text-sm px-2 py-1 rounded bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 >
                   + {skill}
                 </button>
@@ -2139,7 +2158,7 @@ export function PartnersScreen() {
                 <button
                   key={key}
                   onClick={() => void toggleAvailability(key)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  className={`text-sm px-2.5 py-2 rounded border transition-colors ${
                     active
                       ? "border-[var(--primary)] bg-[var(--secondary)] text-[var(--primary)]"
                       : "border-[var(--border)] text-[var(--muted-foreground)]"
@@ -2165,7 +2184,7 @@ export function PartnersScreen() {
         <select
           value={classroomId ?? ""}
           onChange={(event) => setClassroomId(Number(event.target.value))}
-          className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-white outline-none focus:ring-2 focus:ring-[var(--primary)]"
+          className="ui-field-control w-auto"
           aria-label={t("partners.selectClass")}
         >
           {groupOptions.map((item) => (
@@ -2190,13 +2209,15 @@ export function PartnersScreen() {
               <Card key={candidate.user_id} className="p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold"
-                    style={{ background: "var(--accent)", color: "white" }}
+                    className="w-9 h-9 rounded-md flex items-center justify-center text-sm font-semibold"
+                    style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
                   >
                     {(candidate.display_name ?? "?").slice(0, 1).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{candidate.display_name ?? "—"}</p>
+                    <p className="text-sm font-medium break-words">
+                      {candidate.display_name ?? "—"}
+                    </p>
                     <p className="text-xs text-[var(--muted-foreground)]">
                       {t("partners.match", {
                         percent: candidate.compatibility,
@@ -2391,7 +2412,7 @@ export function JoinClassScreen() {
             <div key={step} className="flex items-start gap-2.5">
               <span
                 className="w-4.5 h-4.5 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5"
-                style={{ background: "var(--primary)", color: "white" }}
+                style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
               >
                 {index + 1}
               </span>
@@ -2419,7 +2440,7 @@ export function JoinClassScreen() {
           {(mine.data?.data ?? []).map((request) => (
             <div key={request.id} className="p-4 flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{request.classroom?.name ?? "—"}</p>
+                <p className="text-sm font-medium break-words">{request.classroom?.name ?? "—"}</p>
                 <p className="text-xs text-[var(--muted-foreground)]">
                   {request.classroom?.teacher_name ?? ""}
                 </p>

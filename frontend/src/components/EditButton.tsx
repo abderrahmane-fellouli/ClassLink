@@ -91,7 +91,7 @@ export function EditButton({
                 />
               ),
             )}
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 flex-wrap">
               <Btn variant="ghost" disabled={action.pending} onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Btn>

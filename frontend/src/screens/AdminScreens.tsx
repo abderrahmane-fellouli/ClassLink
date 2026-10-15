@@ -124,7 +124,7 @@ export function AdminDashboard() {
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
                     style={{
-                      background: provider.enabled ? "green" : "var(--muted-foreground)",
+                      background: provider.enabled ? "var(--success)" : "var(--muted-foreground)",
                     }}
                   />
                   <p className="text-sm flex-1">{provider.name}</p>
@@ -295,7 +295,7 @@ export function AdminUsersScreen() {
                         })
                       }
                       disabled={update.pending}
-                      className="text-xs px-2 py-1 border border-[var(--border)] rounded-lg bg-white outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                      className="ui-field-control"
                       aria-label={`${t("admin.users.col.role")} ${user.display_name}`}
                     >
                       {(["student", "teacher", "admin", "pending", "denied"] as Role[]).map(
@@ -858,7 +858,7 @@ export function AdminAuditScreen() {
                   <td data-label={t("admin.audit.col.action")} className="px-4 py-3">
                     <p className="font-mono text-xs">{entry.action}</p>
                     {entry.context && (
-                      <p className="text-[10px] text-[var(--muted-foreground)] truncate max-w-xs">
+                      <p className="text-sm text-[var(--muted-foreground)] break-words max-w-prose">
                         {JSON.stringify(entry.context)}
                       </p>
                     )}

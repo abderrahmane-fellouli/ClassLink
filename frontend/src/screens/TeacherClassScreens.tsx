@@ -323,8 +323,8 @@ function RequestsTab({
         {items.map((member) => (
           <div key={member.membership_id} className="p-4 flex items-center gap-3">
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold"
-              style={{ background: "var(--accent)", color: "white" }}
+              className="w-9 h-9 rounded-md flex items-center justify-center text-sm font-semibold"
+              style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
             >
               {member.user?.initials ?? "—"}
             </div>
@@ -441,7 +441,7 @@ function MembersTab({
           {accepted.map((member) => (
             <div key={member.membership_id} className="p-4 flex items-center gap-3">
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold"
+                className="w-9 h-9 rounded-md flex items-center justify-center text-sm font-semibold"
                 style={{
                   background: "var(--secondary)",
                   color: "var(--primary)",
@@ -775,7 +775,7 @@ function MaterialsTab({
                   {item.type === "link" ? <Icons.External /> : <Icons.Book />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{item.title}</p>
+                  <p className="text-sm font-medium break-words">{item.title}</p>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     {item.chapter ?? "—"}
                     {item.file_size ? ` · ${formatNumber(item.file_size)} o` : ""}
@@ -1095,7 +1095,7 @@ function QuizzesTab({
               <Card key={quiz.id} className="p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">{quiz.title}</p>
+                    <p className="text-sm font-medium break-words">{quiz.title}</p>
                     <Badge
                       label={t(
                         quiz.status === "published" ? "quiz.status.published" : "quiz.status.draft",
@@ -1187,7 +1187,7 @@ function QuizzesTab({
               <Card key={deck.id} className="p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">{deck.title}</p>
+                    <p className="text-sm font-medium break-words">{deck.title}</p>
                     <Badge
                       label={t(
                         deck.status === "published" ? "quiz.status.published" : "quiz.status.draft",
@@ -1343,7 +1343,7 @@ function AssignmentsTab({
             {items.map((item) => (
               <Card key={item.id} className="p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{item.title}</p>
+                  <p className="text-sm font-medium break-words">{item.title}</p>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     {item.due_at ? formatDateTime(item.due_at) : "—"}
                     {item.submissions_count
@@ -1749,7 +1749,7 @@ export function QuizEditorScreen() {
             value={settings.title}
             onChange={(value) => setSettings({ ...settings, title: value })}
           />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid sm:grid-cols-2 gap-4">
             <Input
               label={t("assignment.dueAt")}
               type="datetime-local"
@@ -2118,7 +2118,7 @@ export function QuizResultsScreen() {
                 {data.most_missed.map((item) => (
                   <div key={item.question_id}>
                     <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="truncate max-w-[70%]">{item.statement}</span>
+                      <span className="break-words min-w-0">{item.statement}</span>
                       <span className="text-[var(--muted-foreground)]">
                         {t("progress.missRate", { rate: item.miss_rate })}
                       </span>
@@ -2248,7 +2248,7 @@ export function GradeScreen() {
                   }`}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
+                    <p className="text-sm font-medium break-words">
                       {submission.student?.display_name ?? "—"}
                     </p>
                     <p className="text-xs text-[var(--muted-foreground)]">

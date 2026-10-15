@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 const root = fileURLToPath(new URL("../", import.meta.url));
-const folder = join(root, "artifacts/ux/after");
+const figma = process.argv.includes("--figma");
+const folder = join(root, figma ? "artifacts/figma/routes" : "artifacts/ux/after");
 const report = JSON.parse(readFileSync(join(folder, "review.json"), "utf8"));
 const names = [
   ...new Set(
-    report.screenshots.filter((name) => !name.startsWith("firefox-") && name.endsWith("-320.png")),
+    report.screenshots.filter((name) => !name.includes("firefox-") && name.endsWith("-320.png")),
   ),
 ];
 const browser = await chromium.launch();

@@ -10,19 +10,23 @@ import { createServer } from "node:net";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const phase = process.argv[2] === "before" ? "before" : "after";
+const figmaReview = process.argv.includes("--figma");
 const journeysOnly = process.argv.includes("--journeys-only");
 const routesOnly = process.argv.includes("--routes-only");
 const resumeReview = process.argv.includes("--resume-review");
 const tempRoot = join(tmpdir(), "opencode");
 mkdirSync(tempRoot, { recursive: true });
 const workspace = mkdtempSync(join(tempRoot, ".school-pilot-ux-"));
-const output = join(root, "artifacts/ux", journeysOnly ? "journeys" : phase);
+const output = figmaReview
+  ? join(root, "artifacts/figma", journeysOnly ? "journeys" : "routes")
+  : join(root, "artifacts/ux", journeysOnly ? "journeys" : phase);
 mkdirSync(output, { recursive: true });
 const priorReview =
   resumeReview && existsSync(join(output, "review.json"))
     ? JSON.parse(readFileSync(join(output, "review.json"), "utf8"))
     : {};
-const reviewKey = (row) => `${row.browser}|${row.actor}|${row.locale}|${row.route}`;
+const reviewKey = (row) =>
+  `${row.browser}|${row.actor}|${row.locale}|${row.theme ?? "light"}|${row.route}`;
 const refreshCopy = (path) =>
   ["/login", "/app/join", "/not-a-real-route"].includes(path) ||
   path.startsWith("/auth/microsoft/callback");
@@ -42,7 +46,7 @@ const env = {
   FRONTEND_URL: frontend,
   APP_KEY: randomBytes(32).toString("hex").slice(0, 32),
   DB_CONNECTION: "sqlite",
-  DB_URL: "",
+  DB_URL: "(null)",
   DB_DATABASE: database,
   DB_CACHE_CONNECTION: "sqlite",
   DB_CACHE_LOCK_CONNECTION: "sqlite",
@@ -51,7 +55,12 @@ const env = {
   QUEUE_CONNECTION: "sync",
   FILESYSTEM_DISK: "testing",
   MAIL_MAILER: "array",
-  MAIL_URL: "",
+  MAIL_URL: "(null)",
+  AI_PROVIDER_1_KEY: "(null)",
+  AI_PROVIDER_2_KEY: "(null)",
+  AI_PROVIDER_3_KEY: "(null)",
+  AZURE_CLIENT_ID: "(null)",
+  AZURE_CLIENT_SECRET: "(null)",
   DEV_AUTH_ENABLED: "false",
   VITE_API_URL: apiBase,
 };
@@ -398,91 +407,188 @@ try {
       const page = await context.newPage();
       let errors = [];
       page.on("pageerror", (e) => errors.push(e.name));
+      page.on("console", (message) => {
+        if (
+          message.type() === "error" &&
+          /Uncaught|TypeError|ReferenceError|SyntaxError|Maximum update depth/.test(message.text())
+        )
+          errors.push("console-runtime-error");
+      });
       for (const locale of phase === "before" ? ["fr"] : ["fr", "en"]) {
         if (actors[actor] && !["pending", "suspended"].includes(actor))
           await call(actor, "/me", "PATCH", { locale });
-        for (const [index, path] of paths.entries()) {
-          const existing = findings.find(
-            (row) =>
-              reviewKey(row) === reviewKey({ browser: browserName, actor, locale, route: path }),
-          );
-          if (
-            resumeReview &&
-            existing &&
-            !existing.errors.length &&
-            !existing.overflows.length &&
-            !refreshCopy(path)
-          )
-            continue;
-          revisited++;
-          await page.goto(frontend + path);
-          await page.evaluate((locale) => localStorage.setItem("classlink.locale", locale), locale);
-          await page.reload();
-          await page.waitForLoadState("networkidle", { timeout: 10000 });
-          const row = {
-            browser: browserName,
-            actor,
-            locale,
-            route: path,
-            finalRoute: new URL(page.url()).pathname,
-            heading: await page
-              .locator("h1")
-              .first()
-              .textContent({ timeout: 1000 })
-              .catch(() => ""),
-            errors: [...errors],
-            overflows: [],
-            tabs: [],
-          };
-          errors = [];
-          for (const width of widths) {
-            await page.setViewportSize({ width, height: 900 });
-            const overflow = await page.evaluate(
-              () => document.documentElement.scrollWidth > innerWidth + 1,
+        for (const theme of figmaReview ? ["light", "dark"] : ["light"]) {
+          for (const [index, path] of paths.entries()) {
+            const existing = findings.find(
+              (row) =>
+                reviewKey(row) ===
+                reviewKey({ browser: browserName, actor, locale, theme, route: path }),
             );
-            if (overflow) row.overflows.push(width);
-            const representative =
-              index === 0 &&
-              ["public", "student1", "student2", "teacher1", "admin"].includes(actor);
-            const firefoxDetail =
-              browserName === "firefox" &&
-              /\/school\/(grades|assessments)/.test(path) &&
-              [320, 768, 1440].includes(width);
             if (
-              locale === "fr" &&
-              !["pending", "suspended"].includes(actor) &&
-              ((browserName === "chromium" && [320, 768, 1440].includes(width)) ||
-                representative ||
-                firefoxDetail)
-            ) {
-              await page.evaluate(() => window.scrollTo(0, 0));
-              const name = `${browserName === "firefox" ? "firefox-" : ""}${actor}-${index}-${width}.png`;
-              await page.screenshot({ path: join(output, name), fullPage: true });
-              if (!screenshots.includes(name)) screenshots.push(name);
+              resumeReview &&
+              existing &&
+              !existing.errors.length &&
+              !existing.overflows.length &&
+              !refreshCopy(path)
+            )
+              continue;
+            revisited++;
+            await page.goto(frontend + path);
+            await page.evaluate(
+              ({ locale, theme }) => {
+                localStorage.setItem("classlink.locale", locale);
+                localStorage.setItem("classlink.theme", theme);
+              },
+              { locale, theme },
+            );
+            await page.reload();
+            await page.waitForLoadState("networkidle", { timeout: 10000 });
+            const row = {
+              browser: browserName,
+              actor,
+              locale,
+              theme,
+              route: path,
+              finalRoute: new URL(page.url()).pathname,
+              heading: await page
+                .locator("h1")
+                .first()
+                .textContent({ timeout: 1000 })
+                .catch(() => ""),
+              errors: [...errors],
+              overflows: [],
+              tabs: [],
+            };
+            errors = [];
+            if (figmaReview) {
+              assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
+              const colors = await page.evaluate(() => {
+                const css = getComputedStyle(document.documentElement);
+                return Object.fromEntries(
+                  [
+                    "--background",
+                    "--foreground",
+                    "--surface",
+                    "--primary",
+                    "--primary-foreground",
+                    "--text-secondary",
+                    "--muted-foreground",
+                    "--error",
+                    "--error-bg",
+                    "--success",
+                    "--success-bg",
+                    "--warning",
+                    "--warning-bg",
+                    "--info",
+                    "--info-bg",
+                  ].map((key) => [key, css.getPropertyValue(key).trim()]),
+                );
+              });
+              row.colors = colors;
+              const luminance = (hex) => {
+                const values = hex
+                  .replace("#", "")
+                  .match(/../g)
+                  .map((v) => parseInt(v, 16) / 255)
+                  .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+                return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+              };
+              const foreground = luminance(colors["--foreground"]),
+                background = luminance(colors["--background"]);
+              row.bodyContrast =
+                (Math.max(foreground, background) + 0.05) /
+                (Math.min(foreground, background) + 0.05);
+              assert.ok(row.bodyContrast >= 4.5, "Body token contrast");
+              row.contrastChecks = [];
+              for (const [fg, bg] of [
+                ["--text-secondary", "--surface"],
+                ["--muted-foreground", "--background"],
+                ["--primary-foreground", "--primary"],
+                ["--error", "--error-bg"],
+                ["--success", "--success-bg"],
+                ["--warning", "--warning-bg"],
+                ["--info", "--info-bg"],
+              ]) {
+                const a = luminance(colors[fg]),
+                  b = luminance(colors[bg]);
+                const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+                assert.ok(ratio >= 4.5, `Semantic text contrast: ${fg} / ${bg}`);
+                row.contrastChecks.push({ fg, bg, ratio });
+              }
             }
-          }
-          const tabs = page.getByRole("tab");
-          for (let i = 0; i < (await tabs.count()); i++) {
-            await tabs.nth(i).click();
-            await page.waitForLoadState("networkidle");
-            row.tabs.push(await tabs.nth(i).textContent());
             for (const width of widths) {
               await page.setViewportSize({ width, height: 900 });
-              if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1))
-                row.overflows.push(`tab-${i}-${width}`);
+              const overflow = await page.evaluate(
+                () => document.documentElement.scrollWidth > innerWidth + 1,
+              );
+              if (overflow) row.overflows.push(width);
+              if (figmaReview && width === 320) {
+                const smallControls = await page.evaluate(() =>
+                  Array.from(document.querySelectorAll("button, select"))
+                    .filter((el) => {
+                      const box = el.getBoundingClientRect(),
+                        css = getComputedStyle(el);
+                      return (
+                        box.width > 0 &&
+                        box.height > 0 &&
+                        css.visibility !== "hidden" &&
+                        (box.height < 43.5 || box.width < 43.5)
+                      );
+                    })
+                    .map(
+                      (el) =>
+                        el.tagName +
+                        ":" +
+                        (el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 60),
+                    ),
+                );
+                assert.deepEqual(smallControls, [], "44px phone control targets");
+              }
+              const representative =
+                index === 0 &&
+                ["public", "student1", "student2", "teacher1", "admin"].includes(actor);
+              const firefoxDetail =
+                browserName === "firefox" &&
+                /\/school\/(grades|assessments)/.test(path) &&
+                [320, 768, 1440].includes(width);
+              if (
+                locale === "fr" &&
+                !["pending", "suspended"].includes(actor) &&
+                ((browserName === "chromium" && [320, 768, 1440].includes(width)) ||
+                  representative ||
+                  firefoxDetail)
+              ) {
+                await page.evaluate(() => window.scrollTo(0, 0));
+                const name = `${figmaReview ? theme + "-" : ""}${browserName === "firefox" ? "firefox-" : ""}${actor}-${index}-${width}.png`;
+                await page.screenshot({ path: join(output, name), fullPage: true });
+                if (!screenshots.includes(name)) screenshots.push(name);
+              }
             }
+            const tabs = page.getByRole("tab");
+            for (let i = 0; i < (await tabs.count()); i++) {
+              await tabs.nth(i).click();
+              await page.waitForLoadState("networkidle");
+              row.tabs.push(await tabs.nth(i).textContent());
+              for (const width of widths) {
+                await page.setViewportSize({ width, height: 900 });
+                if (
+                  await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)
+                )
+                  row.overflows.push(`tab-${i}-${width}`);
+              }
+            }
+            row.errors.push(...errors);
+            errors = [];
+            const existingIndex = findings.findIndex(
+              (previous) => reviewKey(previous) === reviewKey(row),
+            );
+            if (existingIndex >= 0) findings[existingIndex] = row;
+            else findings.push(row);
+            writeFileSync(
+              join(output, "review.json"),
+              JSON.stringify({ phase, findings, screenshots, journeys }, null, 2),
+            );
           }
-          row.errors.push(...errors);
-          errors = [];
-          const existingIndex = findings.findIndex(
-            (previous) => reviewKey(previous) === reviewKey(row),
-          );
-          if (existingIndex >= 0) findings[existingIndex] = row;
-          else findings.push(row);
-          writeFileSync(
-            join(output, "review.json"),
-            JSON.stringify({ phase, findings, screenshots, journeys }, null, 2),
-          );
         }
       }
       await context.close();
@@ -492,12 +598,17 @@ try {
         const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
         await context.route("https://fonts.googleapis.com/**", (route) => route.abort());
         await context.addInitScript(
-          (token) => {
+          ({ token, theme }) => {
             if (token) sessionStorage.setItem("classlink.token", token);
+            if (!localStorage.getItem("classlink.theme"))
+              localStorage.setItem("classlink.theme", theme);
             if (!localStorage.getItem("classlink.locale"))
               localStorage.setItem("classlink.locale", "en");
           },
-          authenticate ? actors[actor].token : null,
+          {
+            token: authenticate ? actors[actor].token : null,
+            theme: figmaReview ? "dark" : "light",
+          },
         );
         lastPage = await context.newPage();
         return { context, page: lastPage };
@@ -519,6 +630,98 @@ try {
         await page.screenshot({ path: join(output, file), fullPage: true });
         screenshots.push(file);
       };
+      if (figmaReview) {
+        const { context, page } = await actorPage("student2");
+        await page.setViewportSize({ width: 320, height: 900 });
+        await page.goto(`${frontend}/app`);
+        await page.waitForLoadState("networkidle");
+        const menu = page.getByRole("button", { name: "Navigation menu", exact: true });
+        await menu.click();
+        const drawer = page.getByRole("dialog");
+        await drawer.getByRole("button", { name: "Switch to Light mode", exact: true }).click();
+        assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
+        await page.keyboard.press("Escape");
+        assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
+        await page.reload();
+        await page.waitForLoadState("networkidle");
+        assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
+        const title = page.locator(".deadline-priority h3");
+        await title.evaluate((el) => {
+          el.textContent =
+            "Analyse comparative approfondie des stratégies de communication et de collaboration interdisciplinaire dans les organisations éducatives contemporaines — In-depth comparative analysis of institutional communication";
+        });
+        // Temporary DOM-only expansion fixtures, never product strings or server data.
+        await page.evaluate(() => {
+          const name = document.querySelector(".shell-tools-name");
+          if (name)
+            name.textContent =
+              "Alexandria Séraphine Démonstration du Centre des Horizons Nord — Northern Horizon Campus";
+          const label = document.querySelector(".ui-field > label");
+          if (label)
+            label.textContent =
+              "Rechercher un groupe ou un module dans mon périmètre scolaire — Search within my authorized learning spaces";
+          const field = document.querySelector(".ui-field");
+          if (field) {
+            const error = document.createElement("p");
+            error.id = "synthetic-expansion-error";
+            error.className = "text-sm";
+            error.style.color = "var(--error)";
+            error.textContent =
+              "Vérifiez les informations saisies et corrigez les champs indiqués avant de continuer. Review the information entered and correct the indicated fields before continuing.";
+            field.querySelector("input")?.setAttribute("aria-describedby", error.id);
+            field.append(error);
+          }
+        });
+        for (const width of widths) {
+          await page.setViewportSize({ width, height: 900 });
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+            true,
+            `Long title at ${width}`,
+          );
+          assert.equal(
+            await title.evaluate(
+              (el) =>
+                getComputedStyle(el).textOverflow === "ellipsis" ||
+                el.scrollHeight > el.clientHeight + 1,
+            ),
+            false,
+          );
+        }
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+        const before = await refresh.boundingBox();
+        await refresh.hover();
+        await refresh.focus();
+        const after = await refresh.boundingBox();
+        assert.equal(after.width, before.width);
+        assert.equal(after.height, before.height);
+        assert.ok(after.height >= 44);
+        assert.notEqual(await refresh.evaluate((el) => getComputedStyle(el).outlineStyle), "none");
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await capture(page, "v2-long-content-focus-light-1440");
+        recordJourney({
+          browser: browserName,
+          scenario:
+            "V2 — theme persistence, drawer Escape/focus, long FR/EN content at ten widths and stable controls",
+          result: "passed",
+          checks: [
+            "theme selection",
+            "theme survives reload",
+            "drawer Escape",
+            "focus restoration",
+            "long identity",
+            "long bilingual form label",
+            "expanded form error",
+            ...widths.map((w) => `long-title-${w}`),
+            "button geometry",
+            "44px control",
+            "visible focus",
+            "reduced-motion render",
+          ],
+        });
+        await context.close();
+      }
       const { context: adminContext, page: adminPage } = await actorPage("admin");
       await adminPage.goto(`${frontend}/app/school`);
       await adminPage.waitForLoadState("networkidle");
@@ -595,6 +798,56 @@ try {
         "Student admission",
       );
       const importedName = `Synthetic roster ${browserName}`;
+      const previewCapture = async (state) => {
+        if (!figmaReview) return;
+        for (const theme of ["light", "dark"]) {
+          await adminPage.setViewportSize({ width: 1440, height: 900 });
+          if ((await adminPage.locator("html").getAttribute("data-theme")) !== theme)
+            await adminPage
+              .getByRole("button", {
+                name: theme === "light" ? "Switch to Light mode" : "Switch to Dark mode",
+                exact: true,
+              })
+              .filter({ visible: true })
+              .first()
+              .click();
+          for (const width of [1440, 320]) {
+            await adminPage.setViewportSize({ width, height: 900 });
+            assert.equal(
+              await adminPage.evaluate(
+                () => document.documentElement.scrollWidth <= innerWidth + 1,
+              ),
+              true,
+            );
+            await capture(adminPage, `v2-roster-${state}-${theme}-${width}`);
+          }
+        }
+        await adminPage.setViewportSize({ width: 1280, height: 900 });
+      };
+      if (figmaReview) {
+        const beforePreview = (await call("admin", `/school/groups/${createdGroup.id}/roster`)).data
+          .length;
+        await adminPage.getByLabel("Authorized roster (CSV)", { exact: true }).setInputFiles({
+          name: "synthetic-invalid-roster.csv",
+          mimeType: "text/csv",
+          buffer: Buffer.from(
+            `student_identifier;email;display_name\n;synthetic.preview.${browserName}@ofppt-edu.ma;Synthetic missing identifier\n`,
+          ),
+        });
+        await adminPage.getByRole("button", { name: "Preview file", exact: true }).click();
+        await adminPage.locator(".roster-preview-errors").waitFor();
+        assert.equal(
+          await adminPage
+            .getByRole("button", { name: "Confirm roster and admissions", exact: true })
+            .isDisabled(),
+          true,
+        );
+        assert.equal(
+          (await call("admin", `/school/groups/${createdGroup.id}/roster`)).data.length,
+          beforePreview,
+        );
+        await previewCapture("blocked-preview");
+      }
       await adminPage.getByLabel("Authorized roster (CSV)", { exact: true }).setInputFiles({
         name: "synthetic-roster.csv",
         mimeType: "text/csv",
@@ -603,6 +856,12 @@ try {
         ),
       });
       await adminPage.getByRole("button", { name: "Preview file", exact: true }).click();
+      if (figmaReview) {
+        await adminPage
+          .getByRole("button", { name: "Confirm roster and admissions", exact: true })
+          .waitFor();
+        await previewCapture("valid-preview");
+      }
       await adminPage
         .getByRole("button", { name: "Confirm roster and admissions", exact: true })
         .click();
@@ -711,6 +970,7 @@ try {
       await teacherPage
         .getByLabel(`Score Synthetic student2 ${actors.student2.id}`)
         .fill(String(nextScore));
+      if (figmaReview) await capture(teacherPage, "v2-official-grade-dirty-dark-1280");
       await teacherPage.getByRole("button", { name: "Save draft", exact: true }).click();
       await teacherPage.waitForLoadState("networkidle");
       assert.equal(
@@ -1204,9 +1464,7 @@ try {
       );
       await call("admin", `/school/delegates/${currentDelegate.id}`, "DELETE", undefined, 204);
       await delegatePage.goto(`${frontend}/app/school`);
-      await delegatePage
-        .getByRole("heading", { name: "My school workspace", exact: true })
-        .waitFor();
+      await delegatePage.getByRole("heading", { name: /^Hello /, level: 1 }).waitFor();
       assert.equal(
         await delegatePage.getByText("Your delegate responsibility", { exact: true }).count(),
         0,
@@ -1284,8 +1542,12 @@ try {
   );
   if (phase === "after") {
     assert.equal(findings.filter((f) => f.overflows.length || f.errors.length).length, 0);
-    assert.equal(journeys.length, routesOnly ? 0 : 12);
+    assert.equal(journeys.length, routesOnly ? 0 : figmaReview ? 14 : 12);
   }
+  writeFileSync(
+    join(output, "review.json"),
+    JSON.stringify({ phase, completed: true, widths, findings, screenshots, journeys }, null, 2),
+  );
   rmSync(join(output, "journey-failure.png"), { force: true });
 } catch (error) {
   if (lastPage && !lastPage.isClosed())

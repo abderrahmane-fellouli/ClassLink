@@ -68,11 +68,11 @@ export function AccessDeniedScreen() {
   const { t } = useI18n();
   const navigate = useNavigate();
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-[var(--background)] p-5">
+    <div className="system-state">
       <Card className="max-w-md w-full p-8 text-center">
         <div
-          className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
-          style={{ background: "var(--danger)", color: "#fff" }}
+          className="w-14 h-14 rounded-lg flex items-center justify-center mx-auto mb-4"
+          style={{ background: "var(--error-bg)", color: "var(--error)" }}
         >
           <Icons.Shield />
         </div>

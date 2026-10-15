@@ -348,7 +348,7 @@ function RouteErrorScreen() {
   const { t } = useI18n();
   return (
     <div className="min-h-dvh flex items-center justify-center p-5">
-      <div className="ui-card bg-white border p-6 max-w-md space-y-4">
+      <div className="ui-card border p-6 max-w-md space-y-4">
         <h1 className="font-display text-xl font-semibold">{t("common.error")}</h1>
         <p>{t("error.pageRecovery")}</p>
         <div className="flex gap-2 flex-wrap">
@@ -368,7 +368,7 @@ function NotFoundScreen() {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-4 text-center px-6">
+    <div className="system-state gap-4 text-center">
       <h1 className="font-display text-5xl font-semibold text-[var(--primary)]">404</h1>
       <p className="text-[var(--muted-foreground)]">{t("notFound.body")}</p>
       <div className="flex gap-2">

@@ -19,6 +19,7 @@ import {
   PageHeader,
   Tabs,
   Toggle,
+  ThemeSwitch,
 } from "../components/UI";
 
 export function ProfileScreen() {
@@ -80,11 +81,11 @@ export function ProfileScreen() {
                 name={user?.display_name ?? "?"}
                 size="lg"
                 color="var(--accent)"
-                textColor="#fff"
+                textColor="var(--primary-foreground)"
               />
               <div className="min-w-0">
-                <p className="font-semibold truncate">{user?.display_name}</p>
-                <p className="text-xs text-[var(--muted-foreground)] truncate">
+                <p className="font-semibold break-words">{user?.display_name}</p>
+                <p className="text-sm text-[var(--muted-foreground)] break-all">
                   {user?.email ?? "—"}
                 </p>
                 <p className="text-xs text-[var(--muted-foreground)] mt-1">
@@ -113,6 +114,9 @@ export function ProfileScreen() {
               />
 
               <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <ThemeSwitch />
+                </div>
                 {saveLanguage.error && (
                   <Alert type="warning" message={t("profile.languageSaveError")} />
                 )}

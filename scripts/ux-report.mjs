@@ -2,6 +2,38 @@
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
+if (process.argv.includes("--figma")) {
+  const report = JSON.parse(readFileSync(`${root}/artifacts/figma/routes/review.json`, "utf8"));
+  console.log(
+    JSON.stringify(
+      {
+        completed: report.completed === true,
+        visits: report.findings.length,
+        viewportChecks: report.findings.length * 10,
+        tabViewportChecks: report.findings.reduce((n, r) => n + r.tabs.length * 10, 0),
+        screenshots: report.screenshots.length,
+        themes: [...new Set(report.findings.map((r) => r.theme))],
+        locales: [...new Set(report.findings.map((r) => r.locale))],
+        journeys: report.journeys?.length ?? 0,
+        detailChecks: (report.journeys ?? []).reduce((n, r) => n + (r.checks?.length ?? 0), 0),
+        issues: report.findings
+          .filter((r) => r.errors.length || r.overflows.length)
+          .map((r) => ({
+            browser: r.browser,
+            actor: r.actor,
+            theme: r.theme,
+            locale: r.locale,
+            route: r.route,
+            errors: r.errors,
+            overflows: r.overflows,
+          })),
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
+}
 const source = readFileSync(`${root}/frontend/src/router.tsx`, "utf8");
 const routes = [...source.matchAll(/\bpath:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
 console.log(`Route definitions: ${routes.length}`);

@@ -1,4 +1,13 @@
 export const uxFr = {
+  "ux.identifier": "Identifiant institutionnel",
+  "ux.themeLight": "Passer au mode clair",
+  "ux.themeDark": "Passer au mode sombre",
+  "ux.greeting": "Bonjour {{name}}.",
+  "ux.nextDeadline": "Votre prochaine échéance",
+  "ux.upcoming": "Vos prochaines échéances",
+  "ux.updates": "Ce qui a changé",
+  "ux.importPreviewNotice":
+    "Aucune inscription modifiée à ce stade. Corrigez les lignes signalées avant de confirmer l’import.",
   "ux.partnerSent": "Demande envoyée. Suivez la réponse dans Mes demandes.",
   "ux.partnerReadOnly":
     "Cette demande n’est plus modifiable dans ce contexte. Son historique est conservé.",
@@ -110,6 +119,15 @@ export const uxFr = {
 } as const;
 
 export const uxEn: Record<keyof typeof uxFr, string> = {
+  "ux.identifier": "Institutional identifier",
+  "ux.themeLight": "Switch to Light mode",
+  "ux.themeDark": "Switch to Dark mode",
+  "ux.greeting": "Hello {{name}}.",
+  "ux.nextDeadline": "Your next deadline",
+  "ux.upcoming": "Your upcoming deadlines",
+  "ux.updates": "What has changed",
+  "ux.importPreviewNotice":
+    "No enrollment has changed yet. Correct the flagged rows before confirming the import.",
   "ux.partnerSent": "Request sent. Follow the response in My requests.",
   "ux.partnerReadOnly":
     "This request can no longer be changed in this context. Its history is preserved.",

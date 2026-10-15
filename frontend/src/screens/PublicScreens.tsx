@@ -5,7 +5,15 @@ import { useI18n } from "../i18n";
 import { auth as authApi } from "../lib/endpoints";
 import { errorMessage } from "../lib/api";
 import { appReturnPath } from "../lib/session";
-import { Btn, ConfirmButton, Icons, Input, Alert, LocaleSwitch } from "../components/UI";
+import {
+  Btn,
+  ConfirmButton,
+  Icons,
+  Input,
+  Alert,
+  LocaleSwitch,
+  ThemeSwitch,
+} from "../components/UI";
 
 const AUTH_DOMAINS = ["ofppt-edu.ma"];
 
@@ -14,15 +22,16 @@ const AUTH_DOMAINS = ["ofppt-edu.ma"];
 function PublicNav({ right }: { right?: ReactNode }) {
   const { t, locale, setLocale } = useI18n();
   return (
-    <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-[var(--border)]">
+    <nav className="public-nav sticky top-0 z-40">
       <div className="max-w-6xl mx-auto px-3 sm:px-5 md:px-8 h-16 flex items-center justify-between gap-2">
         <Link to="/" className="flex items-center gap-2.5">
           <Icons.Logo />
-          <span className="hidden min-[375px]:inline font-display text-lg font-semibold">
+          <span className="hidden sm:inline font-display text-lg font-semibold">
             {t("common.appName")}
           </span>
         </Link>
         <div className="flex items-center gap-2 sm:gap-3">
+          <ThemeSwitch />
           <LocaleSwitch light locale={locale} onChange={setLocale} />
           <span className="hidden sm:block text-xs text-[var(--muted-foreground)]">
             v1.0 · OFPPT
@@ -45,7 +54,7 @@ function PublicNav({ right }: { right?: ReactNode }) {
 function PublicFooter() {
   const { t } = useI18n();
   return (
-    <footer className="border-t border-[var(--border)] bg-white">
+    <footer className="public-footer border-t border-[var(--border-subtle)]">
       <div className="max-w-6xl mx-auto px-5 md:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Icons.Logo />
@@ -108,7 +117,7 @@ export function HomeScreen() {
       <section className="max-w-6xl mx-auto px-5 md:px-8 pt-16 pb-20 grid md:grid-cols-2 gap-12 items-center">
         <div>
           <div
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6"
+            className="ui-status ui-status-blue mb-6"
             style={{ background: "var(--secondary)", color: "var(--accent)" }}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
@@ -155,14 +164,13 @@ export function HomeScreen() {
 
         <div className="hidden md:block">
           <div className="relative">
-            <div
-              className="rounded-2xl overflow-hidden shadow-2xl"
-              style={{ background: "var(--sidebar)" }}
-            >
-              <div className="p-4 border-b border-white/10 flex items-center gap-3">
+            <div className="public-preview overflow-hidden">
+              <div className="p-4 border-b border-[var(--border)] flex items-center gap-3">
                 <Icons.Logo />
-                <span className="text-white font-display font-semibold">{t("common.appName")}</span>
-                <span className="text-xs text-white/75 ml-auto">{t("ux.preview")}</span>
+                <span className="font-display font-semibold">{t("common.appName")}</span>
+                <span className="text-xs text-[var(--muted-foreground)] ml-auto">
+                  {t("ux.preview")}
+                </span>
               </div>
               <div className="p-4 space-y-2">
                 {[t("home.demoClasses.0"), t("home.demoClasses.1"), t("home.demoClasses.2")].map(
@@ -170,25 +178,25 @@ export function HomeScreen() {
                     <div
                       key={name}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg"
-                      style={{ background: "rgba(255,255,255,0.08)" }}
+                      style={{ background: "var(--surface)" }}
                     >
                       <Icons.Class />
-                      <p className="text-white/80 text-xs">{name}</p>
+                      <p className="text-sm">{name}</p>
                     </div>
                   ),
                 )}
                 <div
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg mt-3"
-                  style={{ background: "rgba(111,168,220,0.15)" }}
+                  style={{ background: "var(--selected)" }}
                 >
                   <Icons.Bell />
-                  <p className="text-xs" style={{ color: "var(--secondary)" }}>
+                  <p className="text-sm" style={{ color: "var(--foreground)" }}>
                     {t("home.pendingRequests")}
                   </p>
                 </div>
               </div>
             </div>
-            <div className="absolute -bottom-5 -right-5 bg-white rounded-xl shadow-xl p-4 w-40 border border-[var(--border)]">
+            <div className="relative mt-4 bg-[var(--surface)] rounded-lg p-4 border border-[var(--border)]">
               <p className="text-xs font-medium mb-2">{t("home.globalProgress")}</p>
               <p className="text-2xl font-display font-semibold text-[var(--primary)]">78%</p>
               <div className="mt-2 h-1.5 rounded-full bg-[var(--muted)]">
@@ -199,7 +207,7 @@ export function HomeScreen() {
         </div>
       </section>
 
-      <section className="bg-white border-y border-[var(--border)] py-16">
+      <section className="bg-[var(--surface)] border-y border-[var(--border-subtle)] py-12">
         <div className="max-w-6xl mx-auto px-5 md:px-8">
           <h2 className="font-display text-3xl font-semibold text-center mb-2">
             {t("home.features.title")}
@@ -209,12 +217,9 @@ export function HomeScreen() {
           </p>
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
             {features.map((f) => (
-              <div
-                key={f.title}
-                className="p-6 rounded-[var(--radius)] border border-[var(--border)] hover:border-[var(--primary)]/30 hover:shadow-md transition-all group"
-              >
+              <div key={f.title} className="public-feature">
                 <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center mb-4 group-hover:bg-[var(--primary)] group-hover:text-white transition-all"
+                  className="w-10 h-10 rounded-lg flex items-center justify-center mb-4"
                   style={{
                     background: "var(--secondary)",
                     color: "var(--primary)",
@@ -230,14 +235,10 @@ export function HomeScreen() {
         </div>
       </section>
 
-      <section className="py-16" style={{ background: "var(--sidebar)" }}>
+      <section className="public-cta py-12">
         <div className="max-w-2xl mx-auto px-5 text-center">
-          <h2 className="font-display text-3xl font-semibold text-white mb-4">
-            {t("home.ctaTitle")}
-          </h2>
-          <p className="text-sm mb-8" style={{ color: "rgba(255,255,255,0.55)" }}>
-            {t("home.ctaBody")}
-          </p>
+          <h2 className="font-display text-3xl font-semibold mb-4">{t("home.ctaTitle")}</h2>
+          <p className="text-sm text-[var(--text-secondary)] mb-8">{t("home.ctaBody")}</p>
           <Btn
             size="lg"
             variant="accent"
@@ -386,33 +387,20 @@ export function LoginScreen() {
   }
 
   return (
-    <div className="min-h-dvh flex">
-      <div
-        className="hidden lg:flex flex-col justify-between w-1/2 p-12 relative overflow-hidden"
-        style={{ background: "var(--sidebar)" }}
-      >
-        <div className="absolute inset-0 pointer-events-none">
-          <div
-            className="absolute -top-24 -left-24 w-96 h-96 rounded-full opacity-10"
-            style={{
-              background: "radial-gradient(circle, var(--accent), transparent)",
-            }}
-          />
-        </div>
+    <div className="auth-layout">
+      <div className="auth-brand">
         <div className="flex items-center gap-3 relative z-10">
           <Icons.Logo />
-          <span className="font-display text-xl font-semibold text-white">
-            {t("common.appName")}
-          </span>
+          <span className="font-display text-xl font-semibold">{t("common.appName")}</span>
         </div>
         <div className="relative z-10">
           <p
             className="text-xs font-medium uppercase tracking-widest mb-4"
-            style={{ color: "var(--secondary)" }}
+            style={{ color: "var(--text-secondary)" }}
           >
             {t("login.brandTagline")}
           </p>
-          <h2 className="font-display text-4xl font-semibold text-white leading-tight mb-5">
+          <h2 className="font-display font-semibold leading-tight mb-5">
             {t("login.brandTitle1")}
             <br />
             {t("login.brandTitle2")}
@@ -420,7 +408,7 @@ export function LoginScreen() {
             {t("login.brandTitle3")}
           </h2>
           <p
-            style={{ color: "rgba(255,255,255,0.5)", lineHeight: "1.7" }}
+            style={{ color: "var(--text-secondary)", lineHeight: "1.7" }}
             className="text-sm max-w-xs"
           >
             {t("login.brandBody")}
@@ -429,29 +417,23 @@ export function LoginScreen() {
             {[t("login.brand1"), t("login.brand2"), t("login.brand3")].map((label) => (
               <div key={label} className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--accent)" }} />
-                <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>
-                  {label}
-                </span>
+                <span className="text-sm text-[var(--text-secondary)]">{label}</span>
               </div>
             ))}
           </div>
         </div>
-        <p className="text-xs relative z-10" style={{ color: "rgba(255,255,255,0.75)" }}>
-          {t("home.rights")}
-        </p>
+        <p className="text-sm text-[var(--muted-foreground)] relative z-10">{t("home.rights")}</p>
       </div>
 
-      <div
-        className="flex-1 flex flex-col items-center justify-center px-6 py-12"
-        style={{ background: "var(--background)" }}
-      >
+      <div className="auth-content" style={{ background: "var(--background)" }}>
         <div className="lg:hidden flex items-center gap-2 mb-8">
           <Icons.Logo />
           <span className="font-display text-xl font-semibold">{t("common.appName")}</span>
         </div>
 
-        <div className="w-full max-w-sm">
-          <div className="flex justify-end mb-4">
+        <div className="auth-form">
+          <div className="flex justify-end items-center gap-2 mb-6">
+            <ThemeSwitch />
             <LocaleSwitch light locale={locale} onChange={setLocale} />
           </div>
           {error && (
@@ -474,7 +456,7 @@ export function LoginScreen() {
 
               <a
                 href={microsoftRedirectUrl()}
-                className="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-[var(--radius)] border border-[var(--border)] bg-white hover:bg-[var(--muted)] font-medium text-sm transition-all mb-4"
+                className="ui-button ui-button-secondary w-full flex items-center justify-center gap-3 px-5 py-3 font-medium text-sm mb-4"
               >
                 <Icons.Microsoft />
                 {t("login.microsoft")}
@@ -652,15 +634,12 @@ export function PendingScreen() {
   }, [locale]);
 
   return (
-    <div
-      className="min-h-dvh flex flex-col items-center justify-center px-5 text-center"
-      style={{ background: "var(--background)" }}
-    >
+    <div className="system-state text-center" style={{ background: "var(--background)" }}>
       <div className="mb-6">
         <Icons.Logo />
       </div>
       <div
-        className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
+        className="w-16 h-16 rounded-lg flex items-center justify-center mx-auto mb-6"
         style={{ background: "var(--secondary)", color: "var(--accent)" }}
       >
         <Icons.Clock />
@@ -733,10 +712,7 @@ export function MicrosoftCallbackScreen() {
   }, [adoptCallbackToken, navigate, t]);
 
   return (
-    <div
-      className="min-h-dvh flex items-center justify-center"
-      style={{ background: "var(--background)" }}
-    >
+    <div className="system-state" style={{ background: "var(--background)" }}>
       {error ? (
         <div className="max-w-sm w-full px-5">
           <h1 className="font-display text-2xl font-semibold mb-4">{t("login.title")}</h1>

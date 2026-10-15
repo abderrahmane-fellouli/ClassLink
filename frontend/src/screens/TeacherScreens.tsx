@@ -258,8 +258,8 @@ export function TeacherRequestsScreen() {
                 {group.members.map((member) => (
                   <div key={member.membership_id} className="px-4 py-3 flex items-center gap-3">
                     <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-                      style={{ background: "var(--accent)", color: "white" }}
+                      className="w-8 h-8 rounded-md flex items-center justify-center text-sm font-semibold"
+                      style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
                     >
                       {member.user?.initials ?? "—"}
                     </div>
@@ -312,7 +312,7 @@ export function ClassProgressScreen() {
           <select
             value={classroomId ?? ""}
             onChange={(event) => setClassroomId(Number(event.target.value))}
-            className="px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-white outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            className="ui-field-control w-auto"
             aria-label={t("progress.noClass")}
           >
             {(classes.data?.data ?? []).map((item) => (
@@ -366,7 +366,7 @@ export function ClassProgressScreen() {
                       {(progress.data?.most_missed ?? []).map((item) => (
                         <div key={item.question_id}>
                           <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="truncate max-w-[70%]">
+                            <span className="break-words min-w-0">
                               {item.statement ?? item.quiz_title ?? "—"}
                             </span>
                             <span className="text-[var(--muted-foreground)]">
@@ -437,7 +437,7 @@ export function CreateClassScreen() {
         <Card className="p-6 text-center">
           <div
             className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
-            style={{ background: "rgba(34,197,94,0.12)", color: "green" }}
+            style={{ background: "var(--success-bg)", color: "var(--success)" }}
           >
             <Icons.Check />
           </div>

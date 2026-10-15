@@ -39,8 +39,8 @@ import {
 } from "../components/UI";
 import { EditButton } from "../components/EditButton";
 
-const inputClass = "w-full min-h-11 rounded-lg border border-[var(--border)] bg-white px-3 py-2";
-const panelClass = "ui-card border bg-white p-4 sm:p-6 space-y-4";
+const inputClass = "ui-field-control";
+const panelClass = "ui-panel space-y-4";
 const importReasons: Record<string, TranslationKey> = {
   unknown_or_ineligible_student: "ux.importStudent",
   duplicate_student: "ux.importDuplicate",
@@ -241,10 +241,27 @@ export function SchoolWorkspace() {
     }
   }, [data.data, selected]);
   const group = groups.find((g) => g.id === selected);
+  const quickNavigation = (
+    <nav className="ui-quick-nav" aria-label={t("ux.quickActions")}>
+      <Link to="/app/school/messages">{t("school.messages")}</Link>
+      {role === "student" && (
+        <>
+          <Link to="/app/school/grades">{t("school.grades")}</Link>
+          <Link to="/app/progression">{t("progress.fullHistory")}</Link>
+          <Link to="/app/join">{t("nav.join")}</Link>
+        </>
+      )}
+      <Link to="/app/classes">{t("school.legacy")}</Link>
+    </nav>
+  );
   return (
     <div className="school-page space-y-5">
       <PageHeader
-        title={t("school.title")}
+        title={
+          role === "student"
+            ? t("ux.greeting", { name: user?.display_name ?? "" })
+            : t("school.title")
+        }
         subtitle={t(
           role === "admin"
             ? "ux.workspaceAdmin"
@@ -259,23 +276,14 @@ export function SchoolWorkspace() {
         }
       />
       {workspaceAction.error && <Alert type="error" message={workspaceAction.error.message} />}
-      <nav className="ui-quick-nav" aria-label={t("ux.quickActions")}>
-        <Link to="/app/school/messages">{t("school.messages")}</Link>
-        {role === "student" && (
-          <>
-            <Link to="/app/school/grades">{t("school.grades")}</Link>
-            <Link to="/app/progression">{t("progress.fullHistory")}</Link>
-            <Link to="/app/join">{t("nav.join")}</Link>
-          </>
-        )}
-        <Link to="/app/classes">{t("school.legacy")}</Link>
-      </nav>
+      {role !== "student" && quickNavigation}
       <State state={data}>
         {(role === "teacher" || role === "admin") && (
           <AssignmentRequests overview={data.data} reload={data.reload} />
         )}
         {role === "student" && <SchoolDeadlinesPanel />}
         {role === "student" && <SchoolStudentUpdates />}
+        {role === "student" && quickNavigation}
         {role === "admin" && (
           <details className={panelClass} open={groups.length === 0}>
             <summary>{t("ux.setup")}</summary>
@@ -444,7 +452,7 @@ export function SchoolWorkspace() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </Field>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="workspace-groups grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {groups
             .filter((g) =>
               `${g.name} ${g.official_code}`.toLowerCase().includes(search.toLowerCase()),
@@ -471,7 +479,7 @@ export function SchoolWorkspace() {
             `${g.name} ${g.official_code}`.toLowerCase().includes(search.toLowerCase()),
           ) && <EmptyState message={t("ux.noSearchResults")} />}
         {group && (
-          <section className={panelClass}>
+          <section className="workspace-group space-y-5">
             <h2 className="text-xl font-semibold">{group.name}</h2>
             {role === "admin" && (
               <Field label={t("school.teacher")} hint={t("common.search")}>
@@ -619,7 +627,7 @@ export function SchoolWorkspace() {
             {(data.data?.offerings ?? [])
               .filter((o) => o.classroom_id === group.id)
               .map((o) => (
-                <div className="border rounded-lg p-3 space-y-3" key={o.id}>
+                <div className="workspace-module space-y-3" key={o.id}>
                   <h3 className="font-semibold">
                     {o.module_code} — {o.module_name}
                   </h3>
@@ -1257,16 +1265,35 @@ function RosterPanel({
             {t("school.import")}
           </Btn>
           {preview && (
-            <div>
+            <section className="roster-preview space-y-4">
+              <Alert message={t("ux.importPreviewNotice")} />
               <p>
                 {preview.rows.length} · {t("school.errors")}: {preview.errors.length}
               </p>
-              <ul>
-                {preview.rows.slice(0, 10).map((p) => (
-                  <li key={p.student_identifier}>
-                    {p.student_identifier} — {p.display_name}
-                  </li>
-                ))}
+              <div
+                className="comparison-region"
+                role="region"
+                aria-label={t("school.rosterImport")}
+                tabIndex={0}
+              >
+                <table className="ui-table ui-responsive-table w-full">
+                  <thead>
+                    <tr>
+                      <th scope="col">{t("school.student")}</th>
+                      <th scope="col">{t("ux.identifier")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.slice(0, 10).map((p) => (
+                      <tr key={p.student_identifier}>
+                        <td data-label={t("school.student")}>{p.display_name}</td>
+                        <td data-label={t("ux.identifier")}>{p.student_identifier}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ul className={preview.errors.length ? "roster-preview-errors" : ""}>
                 {preview.errors.map((e) => (
                   <li key={e.row}>
                     {e.row}: {t(importReasons[e.reason] ?? "ux.importUnknown")}
@@ -1290,7 +1317,7 @@ function RosterPanel({
               >
                 {t("school.confirmRoster")}
               </ConfirmButton>
-            </div>
+            </section>
           )}
         </details>
       )}
@@ -1991,7 +2018,7 @@ export function OfficialGradeEditor() {
       Number(String(r.score).replace(",", ".")) > Number(a?.maximum_score));
   const invalidCount = rows.filter(invalidScore).length;
   return (
-    <div className="school-page space-y-5">
+    <div className="school-page grade-editor space-y-5">
       <Link to="/app/school">{t("school.back")}</Link>
       <h1 className="text-2xl font-semibold">{a?.title ?? t("school.assessments")}</h1>
       <p>{t("school.privacy")}</p>
@@ -2095,7 +2122,55 @@ export function OfficialGradeEditor() {
         {action.error && (
           <Alert type="error" message={errorMessage(action.error, t("common.error"))} />
         )}
-        <div className="overflow-x-auto">
+        <div className="grade-toolbar space-y-3">
+          <div className="grade-actions">
+            <Btn
+              disabled={
+                !dirty || !a?.draft_revision_id || action.pending || readOnly || invalidCount > 0
+              }
+              onClick={() => {
+                void action.run(async () => {
+                  const saved = await api.put<{ version: number }>(
+                    `/school/assessments/${id}/draft`,
+                    { version: versionRef.current, rows },
+                    { locale },
+                  );
+                  versionRef.current = saved.version;
+                  setDirty(false);
+                  dirtyRef.current = false;
+                  setNotice(true);
+                  data.reload();
+                });
+              }}
+            >
+              {t("school.save")}
+            </Btn>
+            {(["xlsx", "csv"] as const).map((format) => (
+              <Btn
+                key={format}
+                variant="secondary"
+                disabled={action.pending}
+                onClick={() => {
+                  void action.run(() =>
+                    api.download(
+                      `/school/assessments/${id}/template?format=${format}`,
+                      `assessment-${id}.${format}`,
+                      { locale },
+                    ),
+                  );
+                }}
+              >
+                {t("school.template")} {format.toUpperCase()}
+              </Btn>
+            ))}
+          </div>
+        </div>
+        <div
+          className="comparison-region"
+          role="region"
+          tabIndex={0}
+          aria-label={t("school.assessments")}
+        >
           <table className="grade-table w-full border-collapse text-sm">
             <thead>
               <tr>
@@ -2176,47 +2251,6 @@ export function OfficialGradeEditor() {
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="grade-actions flex gap-3 flex-wrap">
-          <Btn
-            disabled={
-              !dirty || !a?.draft_revision_id || action.pending || readOnly || invalidCount > 0
-            }
-            onClick={() => {
-              void action.run(async () => {
-                const saved = await api.put<{ version: number }>(
-                  `/school/assessments/${id}/draft`,
-                  { version: versionRef.current, rows },
-                  { locale },
-                );
-                versionRef.current = saved.version;
-                setDirty(false);
-                dirtyRef.current = false;
-                setNotice(true);
-                data.reload();
-              });
-            }}
-          >
-            {t("school.save")}
-          </Btn>
-          {(["xlsx", "csv"] as const).map((format) => (
-            <Btn
-              key={format}
-              variant="secondary"
-              disabled={action.pending}
-              onClick={() => {
-                void action.run(() =>
-                  api.download(
-                    `/school/assessments/${id}/template?format=${format}`,
-                    `assessment-${id}.${format}`,
-                    { locale },
-                  ),
-                );
-              }}
-            >
-              {t("school.template")} {format.toUpperCase()}
-            </Btn>
-          ))}
         </div>
         {a?.draft_revision_id ? (
           <>
@@ -3078,8 +3112,8 @@ function SchoolStudentUpdates() {
     [locale],
   );
   return (
-    <section className={panelClass}>
-      <h2 className="font-semibold">{t("student.latestAnnouncements")}</h2>
+    <section className="student-updates space-y-4">
+      <h2 className="font-semibold">{t("ux.updates")}</h2>
       <State state={announcements}>
         {announcements.data?.data.slice(0, 6).map((a) => (
           <article key={a.id} className="border rounded-lg p-3">
@@ -3119,14 +3153,40 @@ function SchoolDeadlinesPanel() {
     [locale],
   );
   return (
-    <section className={panelClass}>
-      <h2 className="font-semibold">{t("school.deadline")}</h2>
+    <section className="student-deadlines space-y-5">
       <State state={state}>
-        <ul className="space-y-3">
+        {state.data?.data[0] && (
+          <article className="deadline-priority">
+            <div>
+              <p className="text-sm text-[var(--text-secondary)] mb-3">{t("ux.nextDeadline")}</p>
+              <h3 className="font-semibold mb-4">{state.data.data[0].title}</h3>
+              <Link className="ui-link" to={state.data.data[0].url}>
+                {t("school.open")}
+              </Link>
+            </div>
+            <div>
+              <p className="text-sm text-[var(--muted-foreground)]">{t("school.deadline")}</p>
+              <time className="font-medium">
+                {state.data.data[0].kind === "assessment"
+                  ? formatDate(state.data.data[0].due_at)
+                  : formatDateTime(state.data.data[0].due_at)}
+              </time>
+              <p className="text-sm text-[var(--muted-foreground)]">{t("ux.timezone")}</p>
+            </div>
+          </article>
+        )}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h2 className="font-semibold">{t("ux.upcoming")}</h2>
+          <Link to="/app/deadlines">{t("nav.deadlines")}</Link>
+        </div>
+        <ul className="deadline-list">
           {state.data?.data.map((item) => (
             <li key={`${item.kind}-${item.id}`}>
-              <Link to={item.url}>{item.title}</Link> ·{" "}
-              {item.kind === "assessment" ? formatDate(item.due_at) : formatDateTime(item.due_at)}
+              <time>
+                {item.kind === "assessment" ? formatDate(item.due_at) : formatDateTime(item.due_at)}
+              </time>
+              <strong className="text-sm font-medium">{item.title}</strong>
+              <Link to={item.url}>{t("school.open")}</Link>
             </li>
           ))}
         </ul>

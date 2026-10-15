@@ -11,19 +11,26 @@ import {
 import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import type { Locale } from "../lib/types";
+import { useTheme } from "../context/ThemeContext";
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 export type Role = "student" | "teacher" | "admin";
 
 export type BadgeColor = "green" | "orange" | "red" | "blue" | "purple" | "default";
 
+const accentColor = (value: string) =>
+  value === "green" ? "var(--success)" : value === "red" ? "var(--error)" : value;
+
 /* ─── Icons ────────────────────────────────────────────────────────── */
 export const Icons = {
   Logo: () => (
     <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8 shrink-0" aria-hidden="true">
-      <rect x="2" y="3" width="20" height="18" rx="7" fill="#1E5AA8" />
-      <rect x="10" y="11" width="20" height="18" rx="7" fill="#6FA8DC" />
-      <path d="M12 17h8" stroke="white" strokeWidth="3" strokeLinecap="round" />
+      <path d="M4 7h10a6 6 0 016 6v14H10a6 6 0 01-6-6V7z" stroke="var(--primary)" strokeWidth="2" />
+      <path
+        d="M28 7H18a6 6 0 00-6 6v14h10a6 6 0 006-6V7z"
+        stroke="var(--primary)"
+        strokeWidth="2"
+      />
     </svg>
   ),
   Microsoft: () => (
@@ -295,24 +302,14 @@ export function Btn({
     md: "min-h-11 px-4 py-2 text-sm",
     lg: "min-h-12 px-5 py-3 text-base",
   };
-  const base = `inline-flex items-center justify-center gap-2 font-medium rounded-[var(--radius)] cursor-pointer border-0 transition-all select-none ${sizes[size]} ${
+  const base = `inline-flex items-center justify-center gap-2 font-medium cursor-pointer select-none ${sizes[size]} ${
     full ? "w-full" : ""
-  } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`;
-  const v = {
-    primary: "bg-[var(--primary)] text-white hover:bg-[#142d54] active:scale-[0.98]",
-    secondary:
-      "bg-[var(--secondary)] text-[var(--primary)] hover:bg-[var(--muted)] active:scale-[0.98]",
-    ghost:
-      "bg-transparent text-[var(--muted-foreground)] hover:bg-[var(--muted)] active:scale-[0.98]",
-    danger: "bg-[var(--danger-strong)] text-white hover:bg-red-700 active:scale-[0.98]",
-    accent: "bg-[var(--accent)] text-white hover:bg-[var(--primary)] active:scale-[0.98]",
-    success: "bg-[var(--success-strong)] text-white hover:bg-green-800 active:scale-[0.98]",
-  };
+  }`;
 
   return (
     <button
       type={type}
-      className={`ui-button ${base} ${v[variant]} ${className}`}
+      className={`ui-button ui-button-${variant} ${base} ${className}`}
       onClick={onClick}
       disabled={disabled}
       title={title}
@@ -325,21 +322,7 @@ export function Btn({
 
 /* ─── Badge ────────────────────────────────────────────────────────── */
 export function Badge({ label, color = "default" }: { label: string; color?: BadgeColor }) {
-  const c = {
-    green: "bg-green-100 text-green-700",
-    orange: "bg-orange-100 text-orange-700",
-    red: "bg-red-100 text-red-700",
-    blue: "bg-blue-100 text-blue-700",
-    purple: "bg-purple-100 text-purple-700",
-    default: "bg-[var(--muted)] text-[var(--muted-foreground)]",
-  };
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium max-w-full whitespace-normal break-words sm:whitespace-nowrap ${c[color]}`}
-    >
-      {label}
-    </span>
-  );
+  return <span className={`ui-status ui-status-${color}`}>{label}</span>;
 }
 
 /* ─── Card ─────────────────────────────────────────────────────────── */
@@ -378,8 +361,7 @@ export function Card({
 }
 
 /* ─── Form fields ──────────────────────────────────────────────────── */
-const fieldClasses =
-  "w-full px-3.5 py-2.5 text-sm bg-white border border-[var(--border)] rounded-[var(--radius)] outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent placeholder:text-[var(--muted-foreground)] disabled:bg-[var(--muted)]";
+const fieldClasses = "ui-field-control placeholder:text-[var(--muted-foreground)]";
 
 export function Field({
   label,
@@ -547,7 +529,7 @@ export function Tabs({
   return (
     <div
       role="tablist"
-      className="flex gap-1 p-1 rounded-[var(--radius)] bg-[var(--muted)] overflow-x-auto shrink-0"
+      className="ui-tabs"
       onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
@@ -569,11 +551,7 @@ export function Tabs({
           aria-selected={active === t.id}
           tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
-          className={`flex-shrink-0 px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
-            active === t.id
-              ? "bg-white shadow-sm text-[var(--foreground)]"
-              : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-          }`}
+          className="font-medium"
         >
           {t.label}
         </button>
@@ -595,8 +573,8 @@ export function StatTile({
   sub?: string;
 }) {
   return (
-    <Card className="p-4">
-      <p className="text-2xl font-semibold" style={{ color }}>
+    <Card className="ui-stat p-4">
+      <p className="text-2xl font-semibold" style={{ color: accentColor(color) }}>
         {value}
       </p>
       <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{label}</p>
@@ -626,7 +604,7 @@ export function ProgressBar({
     >
       <div
         className="h-full rounded-full transition-all"
-        style={{ width: `${clamped}%`, background: color }}
+        style={{ width: `${clamped}%`, background: accentColor(color) }}
       />
     </div>
   );
@@ -659,7 +637,7 @@ export function Avatar({
   };
   return (
     <div
-      className={`${s[size]} rounded-full flex items-center justify-center font-bold shrink-0`}
+      className={`ui-avatar ${s[size]} flex items-center justify-center font-semibold shrink-0`}
       style={{ background: color, color: textColor }}
       aria-hidden="true"
     >
@@ -701,7 +679,7 @@ export function Toggle({
           }`}
         >
           <span
-            className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+            className={`absolute top-0.5 w-4 h-4 bg-[var(--surface-elevated)] rounded-full transition-all ${
               checked ? "left-5" : "left-0.5"
             }`}
           />
@@ -720,17 +698,8 @@ export function Alert({
   message: string;
   type?: "info" | "success" | "error" | "warning";
 }) {
-  const c = {
-    info: "bg-blue-50 border-blue-200 text-blue-700",
-    success: "bg-green-50 border-green-200 text-green-700",
-    error: "bg-red-50 border-red-200 text-red-700",
-    warning: "bg-orange-50 border-orange-200 text-orange-700",
-  };
   return (
-    <div
-      role={type === "error" ? "alert" : "status"}
-      className={`flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-sm border ${c[type]}`}
-    >
+    <div role={type === "error" ? "alert" : "status"} className={`ui-alert ui-alert-${type}`}>
       <Icons.Alert />
       <span className="flex-1">{message}</span>
     </div>
@@ -817,7 +786,7 @@ export function SkeletonStats({ count = 4 }: { count?: number }) {
 export function EmptyState({ message, action }: { message: string; action?: ReactNode }) {
   return (
     <Card className="p-8 text-center">
-      <div className="w-12 h-12 rounded-full bg-[var(--muted)] flex items-center justify-center mx-auto mb-3">
+      <div className="w-12 h-12 rounded-lg bg-[var(--muted)] flex items-center justify-center mx-auto mb-3">
         <Icons.Class />
       </div>
       <p className="text-sm text-[var(--muted-foreground)]">{message}</p>
@@ -831,7 +800,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   return (
     <Card className="p-6 text-center">
       <div
-        className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3"
+        className="w-12 h-12 rounded-lg bg-red-50 flex items-center justify-center mx-auto mb-3"
         style={{ color: "var(--danger)" }}
       >
         <Icons.Alert />
@@ -896,10 +865,10 @@ export function LocaleSwitch({
     <select
       value={locale}
       onChange={(event) => onChange(event.target.value as Locale)}
-      className={`shrink-0 min-h-10 w-20 px-2 text-sm font-medium rounded-lg border cursor-pointer ${
+      className={`shrink-0 min-h-11 w-20 px-2 text-sm font-medium rounded-lg border cursor-pointer ${
         light
-          ? "bg-white border-[var(--border-subtle)] text-[var(--primary)]"
-          : "bg-[var(--sidebar)] border-white/25 text-white"
+          ? "bg-[var(--surface)] border-[var(--border-control)] text-[var(--foreground)]"
+          : "bg-[var(--sidebar)] border-[var(--border-control)] text-[var(--sidebar-fg)]"
       }`}
       aria-label={t("profile.language")}
     >
@@ -917,10 +886,12 @@ export function Dialog({
   title,
   onClose,
   children,
+  drawer = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  drawer?: boolean;
 }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
@@ -971,7 +942,7 @@ export function Dialog({
   }, []);
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
+      className={`ui-overlay fixed inset-0 z-[100] flex ${drawer ? "items-stretch" : "items-center justify-center p-4"}`}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -982,7 +953,7 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
-        className="ui-dialog bg-white rounded-xl border border-[var(--border-subtle)] p-4 sm:p-6 w-full max-w-xl max-h-[90dvh] overflow-y-auto"
+        className={`ui-dialog border border-[var(--border-subtle)] p-4 sm:p-6 w-full overflow-y-auto ${drawer ? "ui-drawer" : "rounded-xl max-w-xl max-h-[90dvh]"}`}
       >
         <div className="flex gap-3 items-start justify-between mb-4">
           <h2 id={id} className="font-display text-xl font-semibold">
@@ -1020,7 +991,7 @@ export function ConfirmButton({
       {open && (
         <Dialog title={t("confirm.title")} onClose={() => setOpen(false)}>
           <p className="text-sm mb-5">{message ?? t("confirm.body")}</p>
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 flex-wrap">
             <Btn variant="secondary" onClick={() => setOpen(false)}>
               {t("common.cancel")}
             </Btn>
@@ -1037,5 +1008,46 @@ export function ConfirmButton({
         </Dialog>
       )}
     </>
+  );
+}
+
+export function IconButton({
+  className = "",
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" {...props} className={`ui-icon-button ${className}`} />;
+}
+
+/** Local visual preference only; never changes authentication or server profile data. */
+export function ThemeSwitch() {
+  const { theme, setTheme } = useTheme();
+  const { t } = useI18n();
+  const label = t(theme === "dark" ? "ux.themeLight" : "ux.themeDark");
+  return (
+    <IconButton
+      className="theme-switch"
+      aria-label={label}
+      title={label}
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        aria-hidden="true"
+      >
+        {theme === "dark" ? (
+          <>
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+          </>
+        ) : (
+          <path d="M20.5 14A8.5 8.5 0 0110 3.5 8.5 8.5 0 1020.5 14z" />
+        )}
+      </svg>
+    </IconButton>
   );
 }
