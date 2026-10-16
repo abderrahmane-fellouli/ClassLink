@@ -15,7 +15,7 @@ import type { ApiUser, Locale, Role } from '../lib/types'
 
 export type Status = 'loading' | 'authenticated' | 'anonymous'
 
-interface AuthValue {
+export interface AuthValue {
   status: Status
   user: ApiUser | null
   token: string | null
@@ -42,6 +42,11 @@ interface AuthValue {
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
+
+/** UI-only context injection for the isolated synthetic review; no login/session work. */
+export function AuthPresentationProvider({ value, children }: { value: AuthValue; children: ReactNode }) {
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { locale, setLocale, t } = useI18n()

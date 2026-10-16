@@ -1,11 +1,13 @@
 import type { TranslationKey } from "./fr";
 import { schoolEn } from "./school";
 import { uxEn } from "./ux";
+import { reviewEn } from "./review";
 
 /** EN — mêmes clés que `fr.ts`, le type interdit toute omission. */
 export const en: Record<TranslationKey, string> = {
   ...schoolEn,
   ...uxEn,
+  ...reviewEn,
   "copy.failed": "The code could not be copied. Retry or copy it manually.",
   "student.latestAnnouncements": "Latest announcements",
   "progress.fullHistory": "All my results by quiz",

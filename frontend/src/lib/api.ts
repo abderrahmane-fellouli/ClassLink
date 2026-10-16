@@ -3,6 +3,7 @@ import { fr } from "../i18n/fr";
 import { en } from "../i18n/en";
 import { schoolDateTimeToIso } from "./dates";
 import type { Locale } from "./types";
+import { getReviewTransport, isV2ReviewPath } from "../review/transport";
 
 const BASE = (import.meta.env.VITE_API_URL ?? "/api").replace(/\/+$/, "");
 
@@ -126,6 +127,12 @@ function buildHeaders(options: RequestOptions): Headers {
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   options = { ...options, locale: options.locale ?? getStoredLocale() ?? "fr" };
   const dictionary = options.locale === "en" ? en : fr;
+  // Fail closed BEFORE constructing auth headers or touching production fetch.
+  const review = getReviewTransport();
+  if (isV2ReviewPath() || review) {
+    if (!review || !isV2ReviewPath()) throw new ApiError(503, dictionary["review.initializing"]);
+    return (await review.request(path, options)) as T;
+  }
   let body = options.body;
   if (body && typeof body === "object" && !Array.isArray(body)) {
     body = Object.fromEntries(
@@ -203,6 +210,11 @@ async function download(
 ): Promise<void> {
   options = { ...options, locale: options.locale ?? getStoredLocale() ?? "fr" };
   const dictionary = options.locale === "en" ? en : fr;
+  const review = getReviewTransport();
+  if (isV2ReviewPath() || review) {
+    if (!review || !isV2ReviewPath()) throw new ApiError(503, dictionary["review.initializing"]);
+    return review.download(path, fileName);
+  }
   const response = await fetch(`${BASE}${path}`, {
     method: "GET",
     headers: buildHeaders({ ...options, empty: true }),

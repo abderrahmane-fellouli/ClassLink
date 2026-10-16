@@ -4,10 +4,12 @@
  */
 import { schoolFr } from "./school";
 import { uxFr } from "./ux";
+import { reviewFr } from "./review";
 
 export const fr = {
   ...schoolFr,
   ...uxFr,
+  ...reviewFr,
   "copy.failed": "Le code n’a pas pu être copié. Réessayez ou copiez-le manuellement.",
   "student.latestAnnouncements": "Dernières annonces",
   "progress.fullHistory": "Tous mes résultats par quiz",

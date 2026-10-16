@@ -3,6 +3,7 @@ import {
   cloneElement,
   isValidElement,
   useEffect,
+  useContext,
   useId,
   useRef,
   useState,
@@ -12,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useI18n } from "../i18n";
 import type { Locale } from "../lib/types";
 import { useTheme } from "../context/ThemeContext";
+import { ReviewBackContext } from "../review/navigation";
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 export type Role = "student" | "teacher" | "admin";
@@ -285,6 +287,7 @@ export function Btn({
   type = "button",
   title,
   "aria-label": ariaLabel,
+  "aria-pressed": ariaPressed,
 }: {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger" | "accent" | "success";
@@ -296,6 +299,7 @@ export function Btn({
   type?: "button" | "submit";
   title?: string;
   "aria-label"?: string;
+  "aria-pressed"?: boolean;
 }) {
   const sizes = {
     sm: "min-h-9 px-3 py-2 text-xs",
@@ -314,6 +318,7 @@ export function Btn({
       disabled={disabled}
       title={title}
       aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
     >
       {children}
     </button>
@@ -719,12 +724,13 @@ export function PageHeader({
   back?: () => void;
 }) {
   const { t } = useI18n();
+  const reviewBack = useContext(ReviewBackContext);
   return (
     <div className="ui-page-header flex items-start justify-between mb-6 gap-3 flex-wrap">
       <div className="min-w-0 break-words">
         {back && (
           <button
-            onClick={back}
+            onClick={reviewBack ?? back}
             className="min-h-11 text-sm text-[var(--muted-foreground)] mb-2 hover:text-[var(--foreground)] flex items-center gap-1"
           >
             {t("common.back")}
