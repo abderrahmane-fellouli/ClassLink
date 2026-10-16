@@ -17,12 +17,17 @@ use App\Http\Controllers\ProgressionController;
 use App\Http\Controllers\QuestionController;
 use App\Http\Controllers\QuizController;
 use App\Http\Controllers\QuizResultController;
+use App\Http\Controllers\TemporaryReviewLoginController;
 use App\Jobs\PruneExpiredOtpCodes;
 use App\Services\AiService;
 use App\Services\EmailDigestService;
 use Illuminate\Support\Facades\Route;
 
 require __DIR__.'/school.php';
+
+// TEMPORARY: isolated, one-account, one-use review access; disabled without its env settings.
+Route::post('/auth/temporary-review', TemporaryReviewLoginController::class)
+    ->middleware('throttle:3,1,temporary-review:');
 
 /*
 |--------------------------------------------------------------------------
