@@ -25,8 +25,11 @@ use Illuminate\Support\Facades\Route;
 
 require __DIR__.'/school.php';
 
-// TEMPORARY: isolated, one-account, one-use review access; disabled without its env settings.
-Route::post('/auth/temporary-review', TemporaryReviewLoginController::class)
+// TEMPORARY: fixed-account selectors and protected read-only discovery; fail closed without env settings.
+Route::get('/auth/temporary-review/accounts', [TemporaryReviewLoginController::class, 'accounts'])
+    ->middleware('throttle:3,1,temporary-review-report:');
+Route::post('/auth/temporary-review/{selector}', TemporaryReviewLoginController::class)
+    ->where('selector', 'student|delegate|teacher|admin')
     ->middleware('throttle:3,1,temporary-review:');
 
 /*
