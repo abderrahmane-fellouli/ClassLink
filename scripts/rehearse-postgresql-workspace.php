@@ -23,7 +23,7 @@ $output = $root.'/artifacts/workspace-postgresql-'.gmdate('Ymd-His').'-'.bin2hex
 mkdir($output, 0700);
 $migration = '2026_10_17_000001_create_workspace_foundation';
 $foundation = ['workspaces', 'workspace_memberships', 'workspace_managers', 'workspace_configurations', 'workspace_capabilities', 'workspace_onboardings'];
-$legacyPaths = array_values(array_filter(glob($root.'/backend/database/migrations/*.php'), fn ($p) => basename($p, '.php') !== $migration));
+$legacyPaths = array_values(array_filter(glob($root.'/backend/database/migrations/*.php'), fn ($p) => basename($p, '.php') < $migration));
 $stage = 'safety';
 
 function expectRehearsal(bool $condition, string $message): void

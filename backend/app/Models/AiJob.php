@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AiJobStatus;
 use App\Enums\AiTarget;
+use App\Models\Concerns\InheritsLegacyWorkspace;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AiJob extends Model
 {
     use HasFactory;
+    use InheritsLegacyWorkspace;
 
     protected $fillable = [
         'teacher_id',

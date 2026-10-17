@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\Membership;
 use App\Models\User;
+use App\Workspace\LegacyWorkspaceScope;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -40,7 +41,7 @@ final class LocalSchoolAccountImport
                 $demo = $this->demoEvidence();
                 $year = DB::table('academic_years')->where('name', $input['academic_year'])->first();
                 if (! $year) {
-                    $yearId = DB::table('academic_years')->insertGetId(['name' => $input['academic_year'], 'starts_on' => $input['starts_on'], 'ends_on' => $input['ends_on'], 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+                    $yearId = LegacyWorkspaceScope::insert('academic_years', ['name' => $input['academic_year'], 'starts_on' => $input['starts_on'], 'ends_on' => $input['ends_on'], 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
                 } else {
                     if ($year->status !== 'active') {
                         throw new RuntimeException('Existing academic year is not active; preserved without modification.');
@@ -128,7 +129,7 @@ final class LocalSchoolAccountImport
                         }
                         $module = $moduleMatches->first();
                         if (! $module) {
-                            $moduleId = DB::table('school_modules')->insertGetId(['code' => $row['module_code'], 'name' => $row['module_title'], 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+                            $moduleId = LegacyWorkspaceScope::insert('school_modules', ['code' => $row['module_code'], 'name' => $row['module_title'], 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
                             $stats['modules_created']++;
                         } else {
                             if ($module->status !== 'active') {
@@ -141,7 +142,7 @@ final class LocalSchoolAccountImport
                         }
                         $offering = DB::table('module_offerings')->where('classroom_id', $group->id)->where('module_id', $moduleId)->first();
                         if (! $offering) {
-                            $offeringId = DB::table('module_offerings')->insertGetId(['classroom_id' => $group->id, 'module_id' => $moduleId, 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+                            $offeringId = LegacyWorkspaceScope::insertOffering(['classroom_id' => $group->id, 'module_id' => $moduleId, 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
                             $stats['offerings_created']++;
                         } else {
                             if ($offering->status !== 'active') {

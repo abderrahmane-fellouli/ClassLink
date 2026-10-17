@@ -59,7 +59,8 @@ class WorkspaceFoundationTest extends TestCase
         $this->actingAs($teacher)->getJson('/api/me')->assertOk()->assertJsonPath('role', 'teacher');
         $this->assertSame(0, Workspace::count());
         $this->assertSame(0, WorkspaceMembership::count());
-        $this->assertFalse(Schema::hasColumn('classrooms', 'workspace_id'));
+        $this->assertTrue(Schema::hasColumn('classrooms', 'workspace_id'));
+        $this->assertSame(0, DB::table('classrooms')->whereNotNull('workspace_id')->count());
         $this->assertFalse(Schema::hasColumn('users', 'workspace_id'));
         $this->assertFalse(Schema::hasTable('learners'));
         $this->assertFalse(Schema::hasTable('teaching_contexts'));

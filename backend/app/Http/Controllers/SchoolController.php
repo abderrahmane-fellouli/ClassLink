@@ -12,6 +12,7 @@ use App\Services\NotificationService;
 use App\Services\RosterImportService;
 use App\Services\SchoolAccess;
 use App\Services\SchoolSetupService;
+use App\Workspace\LegacyWorkspaceScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -24,7 +25,7 @@ class SchoolController extends Controller
     {
         $user = $r->user();
         $groups = $this->setup->groups($user)->get();
-        $years = DB::table('academic_years')->orderByDesc('starts_on')->get();
+        $years = DB::table('academic_years')->orderByDesc('starts_on')->get()->map(LegacyWorkspaceScope::publicRecord(...));
         $yearsById = $years->keyBy('id');
         // Un seul marqueur d'inscription pour tout le tableau de bord (pas de
         // requete EXISTS par groupe).
@@ -57,7 +58,7 @@ class SchoolController extends Controller
         return response()->json(['groups' => $groups, 'offerings' => $offerings, 'teachers' => $staff, 'delegates' => $delegates,
             'years' => $years,
             'available_offerings' => $user->isTeacher() ? DB::table('module_offerings as o')->join('school_modules as m', 'm.id', '=', 'o.module_id')->join('classrooms as c', 'c.id', '=', 'o.classroom_id')->where('c.status', 'active')->where('o.status', 'active')->select('o.id', 'm.name as module_name', 'c.name as classroom_name', 'c.school_year')->limit(200)->get() : [],
-            'modules' => $user->isAdmin() ? DB::table('school_modules')->orderBy('name')->get() : [],
+            'modules' => $user->isAdmin() ? DB::table('school_modules')->orderBy('name')->get()->map(LegacyWorkspaceScope::publicRecord(...)) : [],
             'timezone' => 'Africa/Casablanca']);
     }
 
@@ -65,7 +66,7 @@ class SchoolController extends Controller
     {
         $this->access->admin($r->user());
         $data = $r->validate(['name' => ['required', 'string', 'max:32', 'unique:academic_years'], 'starts_on' => ['required', 'date'], 'ends_on' => ['required', 'date', 'after:starts_on']]);
-        $id = DB::table('academic_years')->insertGetId($data + ['status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+        $id = LegacyWorkspaceScope::insert('academic_years', $data + ['status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
         AuditLog::record($r->user(), 'school.year.create', ['year_id' => $id]);
 
         return response()->json(['id' => $id], 201);
@@ -110,7 +111,7 @@ class SchoolController extends Controller
     {
         $this->access->admin($r->user());
         $data = $r->validate(['code' => ['required', 'string', 'max:64', 'unique:school_modules'], 'name' => ['required', 'string', 'max:255']]);
-        $id = DB::table('school_modules')->insertGetId($data + ['status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+        $id = LegacyWorkspaceScope::insert('school_modules', $data + ['status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
         AuditLog::record($r->user(), 'school.module.create', ['module_id' => $id]);
 
         return response()->json(['id' => $id], 201);
@@ -155,7 +156,7 @@ class SchoolController extends Controller
         $class = $this->access->group($group);
         $this->access->writable($class);
         $data = $r->validate(['module_id' => ['required', 'integer', Rule::exists('school_modules', 'id')->where('status', 'active'), Rule::unique('module_offerings')->where('classroom_id', $group)]]);
-        $id = DB::table('module_offerings')->insertGetId($data + ['classroom_id' => $group, 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+        $id = LegacyWorkspaceScope::insertOffering($data + ['classroom_id' => $group, 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
 
         return response()->json(['id' => $id], 201);
     }
@@ -250,7 +251,7 @@ class SchoolController extends Controller
         $this->access->writable($this->access->group($o->classroom_id));
         $data = $r->validate(['reason' => ['required', 'string', 'max:500']]);
         abort_if(DB::table('school_assignment_requests')->where('teacher_id', $r->user()->id)->where('offering_id', $offering)->exists(), 409, __('api.school.request_exists'));
-        $id = DB::table('school_assignment_requests')->insertGetId($data + ['teacher_id' => $r->user()->id, 'offering_id' => $offering, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+        $id = LegacyWorkspaceScope::insert('school_assignment_requests', $data + ['teacher_id' => $r->user()->id, 'offering_id' => $offering, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
         $this->notifyAssignmentRequest($r->user(), $o, $id);
 
         return response()->json(['id' => $id], 201);
@@ -542,7 +543,7 @@ class SchoolController extends Controller
         $data = $r->validate(['requested_group_code' => ['required', 'string', 'max:64'], 'requested_module_code' => ['required', 'string', 'max:64'], 'requested_year' => ['required', 'string', 'max:32'], 'reason' => ['required', 'string', 'max:500']]);
         $key = hash('sha256', $r->user()->id.'|'.$data['requested_group_code'].'|'.$data['requested_module_code'].'|'.$data['requested_year']);
         abort_if(DB::table('school_assignment_requests')->where('request_key', $key)->exists(), 409, __('api.school.request_exists'));
-        $id = DB::table('school_assignment_requests')->insertGetId($data + ['request_key' => $key, 'teacher_id' => $r->user()->id, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+        $id = LegacyWorkspaceScope::insert('school_assignment_requests', $data + ['request_key' => $key, 'teacher_id' => $r->user()->id, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
         AuditLog::record($r->user(), 'school.setup.request', ['request_id' => $id]);
         // A setup request carries no offering yet: the context is the codes typed by the teacher.
         $recipients = User::where('is_active', true)->where('role', 'admin')->get();

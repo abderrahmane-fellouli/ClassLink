@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Workspace\WorkspaceEventContext;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,6 +20,11 @@ class AppNotification extends Model
     protected $table = 'notifications';
 
     protected $fillable = ['user_id', 'type', 'payload', 'read_at', 'school_outbox_id'];
+
+    protected static function booted(): void
+    {
+        static::created(fn (self $event) => WorkspaceEventContext::persist('notifications', $event));
+    }
 
     protected function casts(): array
     {

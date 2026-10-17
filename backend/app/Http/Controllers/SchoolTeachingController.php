@@ -10,6 +10,7 @@ use App\Models\Material;
 use App\Models\Quiz;
 use App\Services\OfficialGradeService;
 use App\Services\SchoolAccess;
+use App\Workspace\WorkspaceEventContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -71,7 +72,7 @@ class SchoolTeachingController extends Controller
             $object->forceFill(['publication_status' => $action === 'publish' ? 'published' : 'closed'])->save();
             if ($action === 'publish') {
                 foreach (DB::table('school_enrollments')->where('classroom_id', $object->classroom_id)->whereNotNull('active_student_id')->pluck('student_id') as $student) {
-                    DB::table('school_notification_outbox')->insertOrIgnore(['event_key' => 'assignment:'.$record, 'user_id' => $student, 'type' => 'assignment_published',
+                    WorkspaceEventContext::insertOutbox(['event_key' => 'assignment:'.$record, 'user_id' => $student, 'type' => 'assignment_published',
                         'payload' => json_encode(['assignment_id' => $record, 'url' => '/app/assignments/'.$record]), 'created_at' => now(), 'updated_at' => now()]);
                 }
                 app(OfficialGradeService::class)->queueNotifications();

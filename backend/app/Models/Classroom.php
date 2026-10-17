@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ClassStatus;
 use App\Enums\MembershipStatus;
+use App\Models\Concerns\InheritsLegacyWorkspace;
 use App\Services\SchoolAccess;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 class Classroom extends Model
 {
     use HasFactory;
+    use InheritsLegacyWorkspace;
 
     protected $fillable = [
         'teacher_id',

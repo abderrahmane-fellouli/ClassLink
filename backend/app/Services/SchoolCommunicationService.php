@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\User;
+use App\Workspace\LegacyWorkspaceScope;
+use App\Workspace\WorkspaceEventContext;
 use Illuminate\Support\Facades\DB;
 
 final class SchoolCommunicationService
@@ -134,7 +136,7 @@ final class SchoolCommunicationService
         }
 
         return DB::transaction(function () use ($actor, $data, $roles, $offering) {
-            $id = DB::table('school_threads')->insertGetId(['classroom_id' => $data['classroom_id'], 'offering_id' => $data['kind'] === 'private_question' ? $offering : null, 'assessment_id' => $data['assessment_id'] ?? null,
+            $id = LegacyWorkspaceScope::insert('school_threads', ['classroom_id' => $data['classroom_id'], 'offering_id' => $data['kind'] === 'private_question' ? $offering : null, 'assessment_id' => $data['assessment_id'] ?? null,
                 'created_by' => $actor->id, 'kind' => $data['kind'], 'subject' => $data['subject'], 'status' => 'open', 'created_at' => now(), 'updated_at' => now()]);
             foreach ($roles as $userId => $eligibility) {
                 DB::table('school_thread_participants')->insert(['thread_id' => $id, 'user_id' => $userId, 'eligibility' => $eligibility]);
@@ -154,7 +156,7 @@ final class SchoolCommunicationService
             $id = DB::table('school_messages')->insertGetId(['thread_id' => $threadId, 'author_id' => $actor->id, 'body' => $body, 'created_at' => now(), 'updated_at' => now()]);
             DB::table('school_threads')->where('id', $threadId)->update(['updated_at' => now()]);
             foreach (DB::table('school_thread_participants')->where('thread_id', $threadId)->where('user_id', '!=', $actor->id)->get() as $participant) {
-                DB::table('school_notification_outbox')->insertOrIgnore(['event_key' => 'message:'.$id, 'user_id' => $participant->user_id, 'type' => 'school_message_received',
+                WorkspaceEventContext::insertOutbox(['event_key' => 'message:'.$id, 'user_id' => $participant->user_id, 'type' => 'school_message_received',
                     'payload' => json_encode(['thread_id' => $threadId, 'url' => '/app/school/messages/'.$threadId]), 'created_at' => now(), 'updated_at' => now()]);
             }
             $this->grades->queueNotifications();

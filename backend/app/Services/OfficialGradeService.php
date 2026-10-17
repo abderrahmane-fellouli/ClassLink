@@ -6,6 +6,7 @@ use App\Jobs\DeliverSchoolNotifications;
 use App\Models\AuditLog;
 use App\Models\Classroom;
 use App\Models\User;
+use App\Workspace\WorkspaceEventContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -194,7 +195,7 @@ final class OfficialGradeService
                     'payload' => json_encode(['assessment_id' => $id, 'revision_id' => $a->draft_revision_id, 'url' => '/app/school/grades']), 'created_at' => now(), 'updated_at' => now()];
             }
             foreach (array_chunk($outbox, 500) as $chunk) {
-                DB::table('school_notification_outbox')->insertOrIgnore($chunk);
+                WorkspaceEventContext::insertOutbox($chunk);
             }
             $this->queueNotifications();
 

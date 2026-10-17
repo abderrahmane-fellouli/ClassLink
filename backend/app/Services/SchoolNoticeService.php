@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Workspace\LegacyWorkspaceScope;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -91,7 +92,7 @@ final class SchoolNoticeService
 
                         continue;
                     }
-                    $id = DB::table('school_threads')->insertGetId(['notice_key' => $noticeKey, 'classroom_id' => $audience['classroom_id'], 'created_by' => $actor->id,
+                    $id = LegacyWorkspaceScope::insert('school_threads', ['notice_key' => $noticeKey, 'classroom_id' => $audience['classroom_id'], 'created_by' => $actor->id,
                         'kind' => 'class_notice', 'subject' => $subject, 'status' => 'open', 'created_at' => now(), 'updated_at' => now()]);
                     $participants = [];
                     foreach ($audience['roles'] as $userId => $eligibility) {

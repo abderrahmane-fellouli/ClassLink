@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\QuestionType;
 use App\Enums\QuizStatus;
+use App\Models\Concerns\InheritsLegacyWorkspace;
+use App\Models\Concerns\ScopedToOffering;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,7 +15,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Quiz extends Model
 {
     use HasFactory;
-    use \App\Models\Concerns\ScopedToOffering;
+    use InheritsLegacyWorkspace;
+    use ScopedToOffering;
 
     protected $fillable = [
         'classroom_id',
@@ -86,24 +89,26 @@ class Quiz extends Model
         return $this->source === 'ai';
     }
 
-/**
+    /**
      * RG-11 / F-IA-03 : « Un quiz généré par l'IA ne peut être publié
      * qu'après relecture par l'enseignant. »
      */
-    public function canBePublished(?\App\Models\User $viewer = null): bool
+    public function canBePublished(?User $viewer = null): bool
     {
         return ! $this->isAiGenerated() || ($this->reviewed && $this->reviewed_at !== null
             && $this->openedBy($viewer ?? auth()->user()));
     }
 
-    public function openedBy(?\App\Models\User $viewer): bool
+    public function openedBy(?User $viewer): bool
     {
         return $viewer && $this->editor_opened_at !== null && $this->editor_opened_by === $viewer->id;
     }
 
-    public function recordEditorOpening(\App\Models\User $viewer): void
+    public function recordEditorOpening(User $viewer): void
     {
-        if ($this->openedBy($viewer)) return;
+        if ($this->openedBy($viewer)) {
+            return;
+        }
         $this->forceFill([
             'editor_opened_at' => now(), 'editor_opened_by' => $viewer->id,
             'reviewed' => false, 'reviewed_at' => null,

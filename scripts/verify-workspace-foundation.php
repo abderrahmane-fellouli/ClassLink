@@ -95,7 +95,7 @@ $app->make(Kernel::class)->bootstrap();
 
 $migration = '2026_10_17_000001_create_workspace_foundation';
 $relativePath = 'database/migrations/'.$migration.'.php';
-$legacyPaths = array_values(array_filter(glob($root.'/backend/database/migrations/*.php'), fn ($file) => basename($file, '.php') !== $migration));
+$legacyPaths = array_values(array_filter(glob($root.'/backend/database/migrations/*.php'), fn ($file) => basename($file, '.php') < $migration));
 $foundationTables = ['workspaces', 'workspace_memberships', 'workspace_managers', 'workspace_configurations', 'workspace_capabilities', 'workspace_onboardings'];
 $report = ['completed' => false, 'databaseEngine' => 'sqlite', 'productionAccess' => false, 'checks' => []];
 

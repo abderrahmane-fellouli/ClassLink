@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\MaterialType;
+use App\Models\Concerns\InheritsLegacyWorkspace;
+use App\Models\Concerns\ScopedToOffering;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Material extends Model
 {
     use HasFactory;
-    use \App\Models\Concerns\ScopedToOffering;
+    use InheritsLegacyWorkspace;
+    use ScopedToOffering;
 
     protected $fillable = [
         'category',

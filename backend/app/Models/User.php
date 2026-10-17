@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\MembershipStatus;
 use App\Enums\Role;
+use App\Workspace\LegacyWorkspaceScope;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -90,6 +91,11 @@ class User extends Authenticatable
     // -------------------------------------------------------------------------
     // Relations
     // -------------------------------------------------------------------------
+
+    protected static function booted(): void
+    {
+        static::created(fn (self $user) => LegacyWorkspaceScope::associateUser($user));
+    }
 
     public function taughtClassrooms(): HasMany
     {

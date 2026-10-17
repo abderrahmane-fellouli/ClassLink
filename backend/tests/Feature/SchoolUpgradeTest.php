@@ -19,6 +19,9 @@ class SchoolUpgradeTest extends TestCase
 
     public function test_institutional_upgrade_preserves_populated_legacy_records_and_ids(): void
     {
+        // Reconstruct the older institutional schema without later B2 inline FKs.
+        $scopeMigration = require database_path('migrations/2026_10_17_000002_add_compatibility_workspace_scope.php');
+        $scopeMigration->down();
         [$classroom, $teacher, $student] = $this->classWithMember();
         $this->tokenFor($student);
         $quiz = Quiz::create(['classroom_id' => $classroom->id, 'created_by' => $teacher->id, 'title' => 'Synthetic legacy quiz', 'status' => 'published', 'source' => 'manual']);
@@ -58,5 +61,6 @@ class SchoolUpgradeTest extends TestCase
         $this->assertSame(0, DB::table('classrooms')->where('is_official', true)->count());
         $this->assertSame(0, DB::table('school_modules')->count());
         $this->assertTrue(Schema::hasTable('sessions'));
+        $scopeMigration->up();
     }
 }

@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\SchoolCommunicationService;
 use App\Services\SchoolNoticeService;
+use App\Workspace\LegacyWorkspaceScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -16,6 +17,7 @@ class SchoolCommunicationController extends Controller
     public function index(Request $r)
     {
         $page = $this->messages->visibleThreads($r->user())->paginate(30);
+        $page->through(LegacyWorkspaceScope::publicRecord(...));
 
         return response()->json($page)->header('Cache-Control', 'private, no-store');
     }
@@ -41,7 +43,7 @@ class SchoolCommunicationController extends Controller
         $seen = (int) ($messages->max('id') ?? 0);
         DB::table('school_thread_participants')->where('thread_id', $thread)->where('user_id', $r->user()->id)->where('last_read_message_id', '<', $seen)->update(['last_read_message_id' => $seen]);
 
-        return response()->json(['thread' => $record, 'messages' => $messages,
+        return response()->json(['thread' => LegacyWorkspaceScope::publicRecord($record), 'messages' => $messages,
             'participants' => DB::table('school_thread_participants as p')->join('users as u', 'u.id', '=', 'p.user_id')->where('p.thread_id', $thread)->select('u.id', 'u.display_name', 'p.eligibility')->get()])->header('Cache-Control', 'private, no-store');
     }
 

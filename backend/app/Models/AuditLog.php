@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Workspace\WorkspaceEventContext;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -32,6 +33,7 @@ class AuditLog extends Model
      */
     protected static function booted(): void
     {
+        static::created(fn (self $event) => WorkspaceEventContext::persist('audit_logs', $event));
         static::updating(function () {
             throw new LogicException('Le journal d\'audit est immuable : mise à jour refusée.');
         });

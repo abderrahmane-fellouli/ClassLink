@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\InheritsLegacyWorkspace;
+use App\Models\Concerns\ScopedToOffering;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Announcement extends Model
 {
     use HasFactory;
-    use \App\Models\Concerns\ScopedToOffering;
+    use InheritsLegacyWorkspace;
+    use ScopedToOffering;
 
     protected $fillable = [
         'classroom_id',

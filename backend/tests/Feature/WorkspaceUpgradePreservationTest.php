@@ -21,6 +21,8 @@ class WorkspaceUpgradePreservationTest extends TestCase
     public function test_additive_upgrade_preserves_populated_institutional_history_and_authorization(): void
     {
         $migration = require database_path('migrations/2026_10_17_000001_create_workspace_foundation.php');
+        $scopeMigration = require database_path('migrations/2026_10_17_000002_add_compatibility_workspace_scope.php');
+        $scopeMigration->down();
         $migration->down(); // Empty foundation only, inside this isolated test database.
         [$admin, $group, $teachers, $offerings, $students] = $this->schoolFixture();
         $grades = app(OfficialGradeService::class);
@@ -66,5 +68,6 @@ class WorkspaceUpgradePreservationTest extends TestCase
         $this->asToken($teacherToken)->getJson('/api/school/assessments/'.$assessment)->assertOk();
         $this->asToken($otherToken)->getJson('/api/school/threads/'.$thread)->assertNotFound();
         $this->asToken($adminToken)->getJson('/api/school/assessments/'.$assessment)->assertForbidden();
+        $scopeMigration->up();
     }
 }
