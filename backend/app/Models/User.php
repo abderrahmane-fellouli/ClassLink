@@ -123,4 +123,10 @@ class User extends Authenticatable
     {
         return $this->hasOne(PartnerProfile::class);
     }
+
+    /** Workspace association only; existing classroom memberships and roles are unchanged. */
+    public function workspaceMemberships(): HasMany
+    {
+        return $this->hasMany(WorkspaceMembership::class);
+    }
 }
